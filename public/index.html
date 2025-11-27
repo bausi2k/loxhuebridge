@@ -52,6 +52,8 @@
         .del-btn { background: transparent; border: 1px solid var(--border); color: var(--text-muted); padding: 5px 10px; border-radius: 6px; cursor: pointer; }
         .info-btn { background: transparent; border: none; padding: 0 10px; font-size: 1.2em; cursor: pointer; opacity: 0.6; }
         .info-btn:hover { opacity: 1; }
+        /* COLOR DOT */
+        .color-dot { width: 14px; height: 14px; border-radius: 50%; display: inline-block; border: 1px solid rgba(0,0,0,0.2); margin-left: 5px; vertical-align: middle; }
 
         .log-console { background-color: #1a1a1a; color: #f0f0f0; font-family: 'Fira Code', monospace; padding: 15px; border-radius: 8px; height: 300px; overflow-y: auto; font-size: 0.85rem; line-height: 1.4; }
         .log-entry { margin-bottom: 4px; border-bottom: 1px solid #333; padding-bottom: 2px; }
@@ -357,18 +359,19 @@
             }
             if (st.temp !== undefined) badges += `<span class="badge">${st.temp}°C</span>`;
             if (st.lux !== undefined) badges += `<span class="badge">${st.lux} lx</span>`;
-            
-            // HIER BATTERIE
             if (st.bat !== undefined) {
-                let icon = '🔋';
-                let bg = 'var(--border)';
+                let icon = '🔋'; let bg = 'var(--border)';
                 if (st.bat <= 20) { icon = '🚨'; bg = '#ffcdcd'; } 
                 badges += `<span class="badge" style="background:${bg}">${icon} ${st.bat}%</span>`;
             }
-
             if (st.on !== undefined) badges += `<span class="badge" style="background:${st.on?'#e1ffe1':'var(--border)'}">${st.on ? 'AN' : 'AUS'}</span>`;
             if (st.bri !== undefined) badges += `<span class="badge">${Math.round(st.bri)}%</span>`;
             if (st.rotary !== undefined) { const val = st.rotary > 0 ? `+${st.rotary}` : st.rotary; badges += `<span class="badge" style="background:#e1f5fe">🔄 ${val}</span>`; }
+            
+            // --- NEW: COLOR DOT ---
+            if (st.hex) {
+                badges += `<span class="color-dot" style="background-color:${st.hex}"></span>`;
+            }
 
             // --- INFO BUTTON ---
             let infoBtn = '';
@@ -419,10 +422,8 @@
         const hueSelect = document.getElementById('hueTarget');
         if (!name || !hueSelect.value) return alert("Daten fehlen");
         mappings = mappings.filter(m => m.loxone_name.toLowerCase() !== name);
-        
         let rawHueName = hueSelect.options[hueSelect.selectedIndex].text;
-        let cleanHueName = rawHueName.replace(/^[💡🏠📡🔘]\s/, ''); // Icons entfernen
-
+        let cleanHueName = rawHueName.replace(/^[💡🏠📡🔘]\s/, '');
         mappings.push({ loxone_name: name, hue_uuid: hueSelect.value, hue_name: cleanHueName, hue_type: hueSelect.options[hueSelect.selectedIndex].dataset.type });
         await fetch('/api/mapping', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(mappings) });
         document.getElementById('inName').value = '';

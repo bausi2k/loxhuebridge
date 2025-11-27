@@ -86,7 +86,62 @@ function loadMapping() {
 }
 loadMapping();
 
-// --- HELFER ---
+// --- FARB KONVERTIERUNG (XY/Mirek -> RGB Hex) ---
+function componentToHex(c) {
+    const hex = c.toString(16);
+    return hex.length == 1 ? "0" + hex : hex;
+}
+
+function rgbToHex(r, g, b) {
+    return "#" + componentToHex(Math.round(r)) + componentToHex(Math.round(g)) + componentToHex(Math.round(b));
+}
+
+// Näherungswert für XY zu RGB (für UI Anzeige ausreichend)
+function xyToHex(x, y, bri = 1.0) {
+    let z = 1.0 - x - y;
+    let Y = bri;
+    let X = (Y / y) * x;
+    let Z = (Y / y) * z;
+
+    let r = X * 1.656492 - Y * 0.354851 - Z * 0.255038;
+    let g = -X * 0.707196 + Y * 1.655397 + Z * 0.036152;
+    let b = X * 0.051713 - Y * 0.121364 + Z * 1.011530;
+
+    r = r <= 0.0031308 ? 12.92 * r : (1.0 + 0.055) * Math.pow(r, (1.0 / 2.4)) - 0.055;
+    g = g <= 0.0031308 ? 12.92 * g : (1.0 + 0.055) * Math.pow(g, (1.0 / 2.4)) - 0.055;
+    b = b <= 0.0031308 ? 12.92 * b : (1.0 + 0.055) * Math.pow(b, (1.0 / 2.4)) - 0.055;
+
+    r = Math.max(0, Math.min(255, r * 255));
+    g = Math.max(0, Math.min(255, g * 255));
+    b = Math.max(0, Math.min(255, b * 255));
+
+    return rgbToHex(r, g, b);
+}
+
+// Näherungswert Mirek zu RGB
+function mirekToHex(mirek) {
+    let temp = 1000000 / mirek; // Kelvin
+    let r, g, b;
+    temp = temp / 100;
+
+    if (temp <= 66) {
+        r = 255;
+        g = 99.4708025861 * Math.log(temp) - 161.1195681661;
+        if (temp <= 19) b = 0;
+        else b = 138.5177312231 * Math.log(temp - 10) - 305.0447927307;
+    } else {
+        r = 329.698727446 * Math.pow(temp - 60, -0.1332047592);
+        g = 288.1221695283 * Math.pow(temp - 60, -0.0755148492);
+        b = 255;
+    }
+    return rgbToHex(
+        Math.max(0, Math.min(255, r)), 
+        Math.max(0, Math.min(255, g)), 
+        Math.max(0, Math.min(255, b))
+    );
+}
+
+// --- STANDARD HELFER ---
 const LOX_MIN_MIREK = 153; 
 const LOX_MAX_MIREK = 370;
 
@@ -166,6 +221,41 @@ function updateStatus(loxName, key, val) {
     }
 }
 
+// --- STATE SYNC (Beim Start einmal alles laden) ---
+async function syncInitialStates() {
+    if (!isConfigured) return;
+    try {
+        log.info("Lade initialen Status...");
+        const res = await axios.get(`https://${config.bridgeIp}/clip/v2/resource/light`, { headers: { 'hue-application-key': config.appKey }, httpsAgent });
+        const lights = res.data.data;
+        
+        lights.forEach(l => {
+            // Mapping suchen (Reverse Lookup)
+            const entry = mapping.find(m => m.hue_uuid === l.id) || mapping.find(m => {
+                const meta = serviceToDeviceMap[l.id];
+                const mapMeta = serviceToDeviceMap[m.hue_uuid];
+                return meta && mapMeta && meta.deviceId === mapMeta.deviceId;
+            });
+
+            if (entry) {
+                const name = entry.loxone_name;
+                if(l.on) updateStatus(name, 'on', l.on.on ? 1 : 0);
+                if(l.dimming) updateStatus(name, 'bri', l.dimming.brightness);
+                
+                // Color Sync für UI
+                if(l.color && l.color.xy) {
+                    const hex = xyToHex(l.color.xy.x, l.color.xy.y, 1.0);
+                    updateStatus(name, 'hex', hex);
+                } else if (l.color_temperature && l.color_temperature.mirek) {
+                    const hex = mirekToHex(l.color_temperature.mirek);
+                    updateStatus(name, 'hex', hex);
+                }
+            }
+        });
+        log.info("Initialer Status geladen.");
+    } catch(e) { log.warn("Sync fehlgeschlagen (evtl. noch nicht gepairt)."); }
+}
+
 function processHueEvents(events) {
     events.forEach(evt => {
         if (evt.type === 'update' || evt.type === 'add') {
@@ -193,6 +283,15 @@ function processHueEvents(events) {
                         statusCache[lox] = statusCache[lox] || {};
                         statusCache[lox]['rotary'] = steps; 
                     }
+                    
+                    // --- FARB UPDATES FÜR UI ---
+                    if (d.color && d.color.xy) {
+                        updateStatus(lox, 'hex', xyToHex(d.color.xy.x, d.color.xy.y));
+                    }
+                    if (d.color_temperature && d.color_temperature.mirek) {
+                        updateStatus(lox, 'hex', mirekToHex(d.color_temperature.mirek));
+                    }
+
                 } else {
                     let type = 'unknown'; let val = '';
                     const meta = serviceToDeviceMap[d.id];
@@ -218,6 +317,7 @@ async function startEventStream() {
     if (!isConfigured || eventStreamActive) return;
     eventStreamActive = true;
     await buildDeviceMap();
+    await syncInitialStates(); // Sync beim Start
     log.info("Starte EventStream...");
     try {
         const response = await axios({ method: 'get', url: `https://${config.bridgeIp}/eventstream/clip/v2`, headers: { 'hue-application-key': config.appKey, 'Accept': 'text/event-stream' }, httpsAgent, responseType: 'stream' });
@@ -309,7 +409,6 @@ app.get('/api/targets', async (req, res) => {
         ]);
         let t = [];
         if(l.data?.data) l.data.data.forEach(x => {
-            // CAPS für jedes Licht mitschicken
             t.push({ uuid:x.id, name:x.metadata.name, type:'light', capabilities: lightCapabilities[x.id] || null });
         });
         [...(r.data?.data||[]), ...(z.data?.data||[])].forEach(x => { 

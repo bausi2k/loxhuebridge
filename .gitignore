@@ -25,6 +25,8 @@ config.json
 *.pem
 *.crt
 *.key
+mapping.json
+setup_hue.js
 
 # --- IDE & Editor Dateien ---
 .idea/
@@ -41,8 +43,5 @@ coverage/
 
 # myEdits
 iniprompt.md
-.env
-.env.bak
-config.json
 http_lox_server_VO.xml
 udp_lox_server_VI.xml

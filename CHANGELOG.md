@@ -5,6 +5,26 @@ Alle nennenswerten Änderungen an diesem Projekt werden in dieser Datei dokument
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 und dieses Projekt hält sich an [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2025-12-01
+
+### 🚀 Neu (Features)
+- **Smart Lighting:**
+    - **Transition Time:** Einstellbare Überblendzeit (0-500ms) im System-Tab für weichere Lichtwechsel.
+    - **Command Queueing:** Verhindert "Stottern" bei schnellen Slider-Bewegungen (Loxone -> Hue). Befehle werden gepuffert.
+    - **RGB Fallback:** Sendet Loxone Farben an eine reine Warmweiß-Lampe, berechnet die Bridge nun automatisch die passende Farbtemperatur (Wärme basierend auf Rot/Blau-Anteil).
+    - **Capabilities:** Die Bridge liest die physikalischen Kelvin-Grenzen der Lampen aus und skaliert Loxone-Werte exakt auf diesen Bereich.
+- **UI & DX:**
+    - **Color Dot:** Farbiger Punkt in der Liste zeigt den aktuellen Status der Lampe.
+    - **Device Details:** Info-Button (ℹ️) zeigt technische Daten (Modell, Farbraum, Kelvin-Range) im Overlay.
+    - **Export Filter:** Im Export-Dialog können nun gezielt einzelne Geräte per Checkbox ausgewählt werden.
+
+### 🛠 Verbesserungen
+- **Backend:** `server.js` nutzt nun zentrales Config-Management für Transition Time.
+- **Frontend:** Optimierte Dropdowns (keine bereits gemappten Geräte mehr sichtbar).
+- **Docker:** Healthcheck und Pfad-Optimierungen.
+
+---
+
 ## [1.1.0] - 2025-11-27
 
 ### 🚀 Neu (Features)

@@ -29,6 +29,7 @@ config.json
 mapping.json
 setup_hue.js
 HueSettings
+docker-compose_dev.yml
 
 # --- IDE & Editor Dateien ---
 .idea/

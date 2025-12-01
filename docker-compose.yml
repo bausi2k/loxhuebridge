@@ -1,18 +1,17 @@
 services:
   loxhuebridge:
-    build: .
+    # Neu: Wir laden das fertige Image von GitHub
+    image: ghcr.io/bausi2k/loxhuebridge:latest
+    
     container_name: loxhuebridge
     restart: always
     
-    # WICHTIG: Host Network für korrekte UDP Kommunikation mit Loxone
+    # WICHTIG für Loxone UDP Kommunikation
     network_mode: "host"
     
     environment:
       - TZ=Europe/Vienna
-      # Optional: Falls du den Web-Port ändern willst (Standard 8555)
-      # - HTTP_PORT=8555 
       
     volumes:
-      # WICHTIG: Wir mounten den lokalen Ordner "./data" in den Container
-      # Dort liegen dann config.json und mapping.json sicher.
+      # Nur noch der Data-Ordner ist wichtig
       - ./data:/app/data

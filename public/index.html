@@ -58,6 +58,8 @@
 
         .log-console { background-color: #1a1a1a; color: #f0f0f0; font-family: 'Fira Code', monospace; padding: 15px; border-radius: 8px; height: 300px; overflow-y: auto; font-size: 0.85rem; line-height: 1.4; }
         .log-entry { margin-bottom: 4px; border-bottom: 1px solid #333; padding-bottom: 2px; }
+        .log-time { color: #888; margin-right: 10px; }
+        .log-level { font-weight: bold; margin-right: 10px; }
         .level-INFO { color: #61afef; } .level-SUCCESS { color: #98c379; } .level-WARN { color: #e5c07b; } .level-ERROR { color: #e06c75; } .level-DEBUG { color: #c678dd; }
         .settings-table { width: 100%; border-collapse: collapse; }
         .settings-table td { padding: 8px; border-bottom: 1px solid var(--border); }
@@ -369,15 +371,15 @@
                 badges += `<span class="badge" style="background:${bg}">${icon} ${st.bat}%</span>`;
             }
             if (st.on !== undefined) badges += `<span class="badge" style="background:${st.on?'#e1ffe1':'var(--border)'}">${st.on ? 'AN' : 'AUS'}</span>`;
-            if (st.bri !== undefined) badges += `<span class="badge">${Math.round(st.bri)}%</span>`;
-            if (st.rotary !== undefined) { const val = st.rotary > 0 ? `+${st.rotary}` : st.rotary; badges += `<span class="badge" style="background:#e1f5fe">🔄 ${val}</span>`; }
             
-            // --- NEW: COLOR DOT ---
-            if (st.hex) {
-                badges += `<span class="color-dot" style="background-color:${st.hex}"></span>`;
+            // FIX: NUR WENN ANZEIGEN
+            if (st.on) {
+                if (st.bri !== undefined) badges += `<span class="badge">${Math.round(st.bri)}%</span>`;
+                if (st.hex) badges += `<span class="color-dot" style="background-color:${st.hex}"></span>`;
             }
+            
+            if (st.rotary !== undefined) { const val = st.rotary > 0 ? `+${st.rotary}` : st.rotary; badges += `<span class="badge" style="background:#e1f5fe">🔄 ${val}</span>`; }
 
-            // --- INFO BUTTON ---
             let infoBtn = '';
             if(m.hue_type === 'light') {
                 infoBtn = `<button class="info-btn" onclick="showDetails('${m.hue_uuid}')">ℹ️</button>`;

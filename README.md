@@ -127,6 +127,13 @@ Anstatt Befehle manuell einzutippen, kannst du deine konfigurierte loxHueBridge 
 
 ---
 
+**💡 Licht-Status Rückmeldung (Sync):**
+Damit Loxone den Status von Lampen kennt (z.B. wenn per Alexa geschaltet wurde), kannst du im Web-Interface bei jedem Licht die Checkbox **"Loxone Sync"** aktivieren.
+| Typ | Befehlserkennung | Verwendung |
+| :--- | :--- | :--- |
+| **Licht An/Aus** | `hue.kueche.on \v` | Eingang `Stat` am EIB-Taster / Schalter |
+| **Licht Helligkeit** | `hue.kueche.bri \v` | Eingang `AI` (Analog In) für Dimmer |
+
 ## 💡 Manuelle Konfiguration (Referenz)
 
 Falls du die Befehle manuell anlegen möchtest:
@@ -278,6 +285,15 @@ Instead of typing commands manually, you can directly import your configured lox
 
 2.  **RGB+W Lights (Lumitech):**
     If your lights support both Color (RGB) **and** White Tones, configure the actuator type in the Lighting Controller as **"Lumitech"**. Avoid using "RGB", as Loxone might try to mix white using R/G/B channels, resulting in poor light quality. The bridge automatically handles the Lumitech format.
+
+
+
+**💡 Light Status Feedback (Sync):**
+To keep Loxone in sync when lights are controlled externally (e.g., via Alexa), you can enable the **"Loxone Sync"** checkbox for each light in the web interface.
+| Type | Command Recognition | Usage |
+| :--- | :--- | :--- |
+| **Light On/Off** | `hue.kitchen.on \v` | Input `Stat` on EIB Switch / Switch block |
+| **Light Brightness** | `hue.kitchen.bri \v` | Input `AI` (Analog In) for Dimmers |
 
 ---
 

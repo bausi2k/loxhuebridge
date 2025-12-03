@@ -151,7 +151,6 @@ async function updateLightWithQueue(uuid, type, payload, loxName, forcedDuration
     let duration = config.transitionTime !== undefined ? config.transitionTime : 400;
     if (isDigitalSwitch) duration = 0; 
 
-    // Override durch "All"-Loop (0ms)
     if (forcedDuration !== null) duration = forcedDuration;
 
     payload.dynamics = { duration: duration };
@@ -377,56 +376,76 @@ app.get('/api/logs', (req, res) => res.json(logBuffer));
 app.get('/api/settings', (req, res) => res.json({ bridge_ip: config.bridgeIp, loxone_ip: config.loxoneIp, loxone_port: config.loxonePort, http_port: HTTP_PORT, debug: config.debug, key_configured: isConfigured, transitionTime: config.transitionTime }));
 app.post('/api/settings/debug', (req, res) => { config.debug = !!req.body.active; saveConfigToFile(); res.json({success:true}); });
 
-// --- DIAGNOSTICS ---
+// --- DIAGNOSTICS (OPTIMIZED + BATTERY) ---
 app.get('/api/diagnostics', async (req, res) => {
     if(!isConfigured) return res.status(503).json({ error: "Not configured" });
     try {
+        // Parallel Abruf für Speed
         const [resZigbee, resDev, resPower] = await Promise.all([
             axios.get(`https://${config.bridgeIp}/clip/v2/resource/zigbee_connectivity`, { headers: { 'hue-application-key': config.appKey }, httpsAgent }),
             axios.get(`https://${config.bridgeIp}/clip/v2/resource/device`, { headers: { 'hue-application-key': config.appKey }, httpsAgent }),
             axios.get(`https://${config.bridgeIp}/clip/v2/resource/device_power`, { headers: { 'hue-application-key': config.appKey }, httpsAgent })
         ]);
 
+        // 1. Map: Device ID -> Device Meta (Name, Model)
         const devMap = {};
         resDev.data.data.forEach(d => devMap[d.id] = d);
         
+        // 2. Map: Zigbee Service ID -> Zigbee Data
+        // Zigbee Services sind oft Children von Devices. owner.rid ist die Device ID.
+        const zigbeeMap = {};
+        resZigbee.data.data.forEach(z => {
+            if(z.owner && z.owner.rid) zigbeeMap[z.owner.rid] = z;
+        });
+
+        // 3. Map: Power Service ID -> Power Data
         const powerMap = {};
         if(resPower.data?.data) {
-            resPower.data.data.forEach(p => { if(p.owner && p.owner.rid) powerMap[p.owner.rid] = p.power_state; });
+            resPower.data.data.forEach(p => { 
+                if(p.owner && p.owner.rid) powerMap[p.owner.rid] = p.power_state; 
+            });
         }
 
-        const result = resZigbee.data.data.map(z => {
-            const deviceId = z.owner.rid;
-            const device = devMap[deviceId];
-            const power = powerMap[deviceId];
+        // 4. ITERATE DEVICES (Die Quelle der Wahrheit)
+        const result = [];
+        resDev.data.data.forEach(device => {
+            const deviceId = device.id;
             
-            let type = 'Sonstiges';
-            if (device) {
-                if (device.services.some(s => s.rtype === 'light')) type = 'Licht';
-                else if (device.services.some(s => s.rtype === 'motion')) type = 'Sensor';
-                else if (device.services.some(s => s.rtype === 'button' || s.rtype === 'relative_rotary')) type = 'Taster';
-            }
+            // Daten holen
+            const zigbee = zigbeeMap[deviceId];
+            const power = powerMap[deviceId];
 
-            return {
-                name: device ? device.metadata.name : "Unbekannt",
-                model: device ? device.product_data.product_name : "-",
+            // Typ bestimmen
+            let type = 'Sonstiges';
+            if (device.services.some(s => s.rtype === 'light')) type = 'Licht';
+            else if (device.services.some(s => s.rtype === 'motion')) type = 'Sensor';
+            else if (device.services.some(s => s.rtype === 'button' || s.rtype === 'relative_rotary')) type = 'Taster';
+            else if (device.product_data.product_name.toLowerCase().includes('bridge')) type = 'Bridge';
+
+            // Filter: Nur anzeigen, wenn Zigbee ODER Power Daten da sind (oder es die Bridge ist)
+            if (!zigbee && !power && type !== 'Bridge') return;
+
+            result.push({
+                name: device.metadata.name,
+                model: device.product_data.product_name,
                 type: type,
-                status: z.status,
-                mac: z.mac_address,
+                status: zigbee ? zigbee.status : (type === 'Bridge' ? 'connected' : 'unknown'),
+                mac: zigbee ? zigbee.mac_address : '-',
                 battery: power ? power.battery_level : null,
-                last_seen: z.last_seen
-            };
+                last_seen: zigbee ? zigbee.last_seen : null
+            });
         });
         
+        // 5. SORTIERUNG (Kritisch zuerst)
         result.sort((a,b) => {
-            const aCrit = (a.status !== 'connected') || (a.battery !== null && a.battery <= 20);
-            const bCrit = (b.status !== 'connected') || (b.battery !== null && b.battery <= 20);
+            const aCrit = (a.status === 'connectivity_issue' || a.status === 'disconnected') || (a.battery !== null && a.battery <= 20);
+            const bCrit = (b.status === 'connectivity_issue' || b.status === 'disconnected') || (b.battery !== null && b.battery <= 20);
+            
             if (aCrit && !bCrit) return -1; 
             if (!aCrit && bCrit) return 1;  
             if (a.type !== b.type) return a.type.localeCompare(b.type);
             return a.name.localeCompare(b.name);
         });
-
         res.json(result);
     } catch (e) {
         log.error("Diag Error: " + e.message);

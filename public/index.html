@@ -55,6 +55,7 @@
         .info-btn:hover { opacity: 1; }
         /* COLOR DOT */
         .color-dot { width: 14px; height: 14px; border-radius: 50%; display: inline-block; border: 1px solid rgba(0,0,0,0.2); margin-left: 5px; vertical-align: middle; }
+        
         /* SYNC CHECKBOX */
         .sync-check { cursor: pointer; margin-right: 10px; display: flex; align-items: center; font-size: 0.8rem; color: var(--text-muted); background: var(--input-bg); padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border); }
         .sync-check:hover { border-color: var(--accent); color: var(--text-main); }
@@ -131,9 +132,11 @@
                 <h2>Verbindung</h2>
                 <div class="card">
                     <label>Loxone Name</label><input type="text" id="inName" placeholder="...">
-                    <p id="hintAll" style="font-size: 0.8rem; color: var(--accent); margin-top: -5px; margin-bottom: 15px; display:none">
+                    
+                    <p id="hintAll" style="font-size: 0.8rem; color: var(--accent); margin-top: 5px; margin-bottom: 15px; display:none">
                         ℹ️ Tipp: Nutze <b>'all'</b> im Dropdown oder als Namen, um alle zu steuern.
                     </p>
+                    
                     <div style="text-align: center; margin: 15px 0;">⬇</div>
                     <label>Hue Gerät</label><select id="hueTarget"><option>Lade...</option></select>
                     <button class="add-btn" onclick="addMapping()">Speichern</button>
@@ -359,7 +362,7 @@
         window.location.href = `/api/download/${type}?names=${names}`;
         closeModal('exportModal');
     }
-    
+
     // --- NEU: TOGGLE SYNC ---
     async function toggleSync(loxName, isActive) {
         const entry = mappings.find(m => m.loxone_name === loxName);
@@ -460,7 +463,7 @@
             if (st.bat !== undefined) { let icon = '🔋'; let bg = 'var(--border)'; if (st.bat <= 20) { icon = '🚨'; bg = '#ffcdcd'; } badges += `<span class="badge" style="background:${bg}">${icon} ${st.bat}%</span>`; }
             
             if (st.on !== undefined && st.on !== null) {
-                 // Anzeige nur wenn AN, oder wenn Licht-Tab (damit man auch AUS sieht)
+                 // Anzeige nur wenn AN, oder wenn Licht-Tab
                  if(st.on || currentTab === 'light') {
                     const bg = st.on ? '#e1ffe1' : 'var(--border)';
                     badges += `<span class="badge" style="background:${bg}">${st.on ? 'AN' : 'AUS'}</span>`;
@@ -561,9 +564,10 @@
             const s = await res.json();
             const table = document.getElementById('settingsTable');
             const toggleHtml = `<label class="switch"><input type="checkbox" id="sys_debug" ${s.debug ? 'checked' : ''}><span class="slider"></span></label>`;
+            // FIX: 0ms Korrektur
             const tTime = (s.transitionTime !== undefined && s.transitionTime !== null) ? s.transitionTime : 400;
             const rangeHtml = `<div style="display:flex; align-items:center"><input type="range" id="sys_trans" min="0" max="500" step="50" value="${tTime}" oninput="updateTransLabel(this.value)"><span id="transVal" style="margin-left:10px">${tTime} ms</span></div>`;
-            table.innerHTML = `<tr><td>Hue Bridge IP</td><td>${s.bridge_ip}</td></tr><tr><td>Loxone IP</td><td><input type="text" id="sys_loxIp" value="${s.loxone_ip || ''}"></td></tr><tr><td>Loxone UDP Port</td><td><input type="number" id="sys_loxPort" value="${s.loxone_port}"></td></tr><tr><td>Übergangszeit</td><td>${rangeHtml}</td></tr><tr><td>HTTP Port</td><td>${s.http_port}</td></tr><tr><td>Debug Modus</td><td>${toggleHtml}</td></tr><tr><td>App Key</td><td>${s.key_configured}</td></tr>`;
+            table.innerHTML = `<tr><td>Version</td><td><span class="badge" style="background:var(--text-main); color:var(--bg)">v${s.version}</span></td></tr><tr><td>Hue Bridge IP</td><td>${s.bridge_ip}</td></tr><tr><td>Loxone IP</td><td><input type="text" id="sys_loxIp" value="${s.loxone_ip || ''}"></td></tr><tr><td>Loxone UDP Port</td><td><input type="number" id="sys_loxPort" value="${s.loxone_port}"></td></tr><tr><td>Übergangszeit</td><td>${rangeHtml}</td></tr><tr><td>HTTP Port</td><td>${s.http_port}</td></tr><tr><td>Debug Modus</td><td>${toggleHtml}</td></tr><tr><td>App Key</td><td>${s.key_configured}</td></tr>`;
         } catch(e) { document.getElementById('settingsTable').innerHTML = 'Fehler beim Laden'; }
     }
 

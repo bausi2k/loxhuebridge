@@ -1,11 +1,21 @@
-require('dotenv').config();
-const express = require('express');
+const express = require('express'); // dotenv entfernt
 const axios = require('axios');
 const fs = require('fs');
 const https = require('https');
 const path = require('path');
 const dgram = require('dgram');
 const os = require('os');
+
+// --- VERSION SAFETY CHECK ---
+let pjson = { version: "unknown" };
+try {
+    const pJsonPath = path.join(__dirname, 'package.json');
+    if (fs.existsSync(pJsonPath)) {
+        pjson = JSON.parse(fs.readFileSync(pJsonPath, 'utf8'));
+    }
+} catch (e) {
+    console.warn("⚠️ Konnte package.json nicht laden:", e.message);
+}
 
 // --- PFADE ---
 const DATA_DIR = path.join(__dirname, 'data');
@@ -29,7 +39,7 @@ let config = {
 };
 
 let isConfigured = false;
-const logBuffer = []; const MAX_LOGS = 50;
+const logBuffer = []; const MAX_LOGS = 100;
 
 // --- LOGGING ---
 const getTime = () => {
@@ -37,27 +47,27 @@ const getTime = () => {
     return now.toLocaleTimeString('de-DE', { hour12: false }) + '.' + String(now.getMilliseconds()).padStart(3, '0');
 };
 
-function addToLogBuffer(level, msg) {
-    logBuffer.unshift({ time: getTime(), level: level, msg: msg });
+function addToLogBuffer(level, msg, category = 'SYSTEM') {
+    logBuffer.unshift({ time: getTime(), level: level, msg: msg, cat: category });
     if (logBuffer.length > MAX_LOGS) logBuffer.pop();
 }
 
 const log = {
-    info: (m) => { console.log(`ℹ️  [${getTime()}] INFO: ${m}`); addToLogBuffer('INFO', m); },
-    success: (m) => { console.log(`✅  [${getTime()}] SUCCESS: ${m}`); addToLogBuffer('SUCCESS', m); },
-    warn: (m) => { console.log(`⚠️  [${getTime()}] WARN: ${m}`); addToLogBuffer('WARN', m); },
-    error: (m) => { console.error(`❌ [${getTime()}] ERROR: ${m}`); addToLogBuffer('ERROR', m); },
-    debug: (m) => { if(config.debug){ console.log(`🐛 [${getTime()}] DEBUG: ${m}`); addToLogBuffer('DEBUG', m); }},
-    hueError: (e) => {
+    info: (m, cat='SYSTEM') => { console.log(`ℹ️  [${getTime()}] [${cat}] ${m}`); addToLogBuffer('INFO', m, cat); },
+    success: (m, cat='SYSTEM') => { console.log(`✅  [${getTime()}] [${cat}] ${m}`); addToLogBuffer('SUCCESS', m, cat); },
+    warn: (m, cat='SYSTEM') => { console.log(`⚠️  [${getTime()}] [${cat}] ${m}`); addToLogBuffer('WARN', m, cat); },
+    error: (m, cat='SYSTEM') => { console.error(`❌ [${getTime()}] [${cat}] ${m}`); addToLogBuffer('ERROR', m, cat); },
+    debug: (m, cat='SYSTEM') => { if(config.debug){ console.log(`🐛 [${getTime()}] [${cat}] ${m}`); addToLogBuffer('DEBUG', m, cat); }},
+    hueError: (e, cat='SYSTEM') => {
         const s = e.response ? e.response.status : 'Net';
         if (s === 429) {
-            console.warn(`⚠️ [${getTime()}] HUE RATE LIMIT (429)`);
-            addToLogBuffer('WARN', `HUE RATE LIMIT (429)`);
+            console.warn(`⚠️ [${getTime()}] RATE LIMIT`);
+            addToLogBuffer('WARN', `HUE RATE LIMIT (429)`, cat);
             return;
         }
         const d = e.response ? JSON.stringify(e.response.data) : e.message;
         console.error(`❌ [${getTime()}] HUE ERR ${s}: ${d}`);
-        addToLogBuffer('ERROR', `HUE ERR ${s}: ${d}`);
+        addToLogBuffer('ERROR', `HUE ERR ${s}: ${d}`, cat);
     }
 };
 
@@ -81,7 +91,7 @@ function loadConfig() {
         }
     } catch (e) {}
     if (config.bridgeIp && config.appKey) isConfigured=true;
-    else log.warn("Setup erforderlich.");
+    else log.warn("Setup erforderlich.", 'SYSTEM');
 }
 loadConfig();
 
@@ -141,18 +151,33 @@ function rgbToMirekFallback(r, g, b, minM, maxM) {
 }
 function hueLightToLux(v) { return Math.round(Math.pow(10, (v - 1) / 10000)); }
 
+
+
 // --- QUEUE LOGIC ---
 const commandState = {};
 
 async function updateLightWithQueue(uuid, type, payload, loxName, forcedDuration = null) {
     if (!commandState[uuid]) commandState[uuid] = { busy: false, next: null };
 
-    const isDigitalSwitch = Object.keys(payload).length === 1 && payload.on !== undefined;
+    // Default Transition aus Config
     let duration = config.transitionTime !== undefined ? config.transitionTime : 400;
-    if (isDigitalSwitch && payload.on.on === true) duration = 0; 
+
+    // Check: Ist es ein reiner An/Aus Befehl?
+    const isDigitalSwitch = Object.keys(payload).length === 1 && payload.on !== undefined;
+    
+    if (isDigitalSwitch) {
+        if (payload.on.on === true) duration = 0; // Ziel: Sofort (wird unten zu "Standard")
+    }
 
     if (forcedDuration !== null) duration = forcedDuration;
-    payload.dynamics = { duration: duration };
+
+    // --- FIX V1.7.2 ---
+    // Wenn Duration 0 ist, senden wir KEIN dynamics Objekt.
+    // Billige Controller stürzen bei duration:0 ab. 
+    // Weglassen zwingt Controller zum Default-Verhalten (meist Fade).
+    if (duration > 0) {
+        payload.dynamics = { duration: duration };
+    }
 
     if (commandState[uuid].busy) {
         commandState[uuid].next = payload;
@@ -163,15 +188,19 @@ async function updateLightWithQueue(uuid, type, payload, loxName, forcedDuration
     await sendToHueRecursive(uuid, type, payload, loxName);
 }
 
+
+
 async function sendToHueRecursive(uuid, type, payload, loxName) {
     try {
         const url = `https://${config.bridgeIp}/clip/v2/resource/${type}/${uuid}`;
-        log.debug(`OUT -> Hue (${loxName}): ${JSON.stringify(payload)}`);
+        // LOG MIT KATEGORIE 'LIGHT'
+        log.debug(`OUT -> Hue (${loxName}): ${JSON.stringify(payload)}`, 'LIGHT');
+        
         await axios.put(url, payload, { headers: { 'hue-application-key': config.appKey }, httpsAgent });
         updateStatus(loxName, 'on', payload.on?.on ? 1 : 0);
         if(payload.dimming) updateStatus(loxName, 'bri', payload.dimming.brightness);
     } catch (e) {
-        log.hueError(e);
+        log.hueError(e, 'LIGHT');
         await new Promise(r => setTimeout(r, 100));
     } finally {
         if (commandState[uuid].next) {
@@ -215,7 +244,7 @@ async function executeCommand(entry, value, forcedTransition = null) {
                     const minM = caps.min || 153; const maxM = caps.max || 500;
                     const targetMirek = rgbToMirekFallback(r, g, b, minM, maxM);
                     payload = { on: { on: true }, dimming: { brightness: max }, color_temperature: { mirek: targetMirek } };
-                    log.debug(`RGB Fallback: R${r} B${b} -> ${targetMirek}m`);
+                    log.debug(`RGB Fallback: R${r} B${b} -> ${targetMirek}m`, 'LIGHT');
                 } else {
                     payload = { on: { on: true }, dimming: { brightness: max }, color: { xy: rgbToXy(r, g, b) } };
                 }
@@ -232,7 +261,7 @@ const udpClient = dgram.createSocket('udp4');
 function sendToLoxone(baseName, suffix, value) {
     if (!config.loxoneIp) return;
     const msg = `hue.${baseName}.${suffix} ${value}`;
-    udpClient.send(Buffer.from(msg), config.loxonePort, config.loxoneIp, (err) => { if(err) log.error(`UDP Err: ${err}`); });
+    udpClient.send(Buffer.from(msg), config.loxonePort, config.loxoneIp, (err) => { if(err) log.error(`UDP Err: ${err}`, 'SYSTEM'); });
 }
 
 // --- LOGIK ---
@@ -252,10 +281,9 @@ async function buildDeviceMap() {
                 max: l.color_temperature?.mirek_schema?.mirek_maximum || 500
             };
         });
-    } catch (e) { log.error("Map Error: " + e.message); }
+    } catch (e) { log.error("Map Error: " + e.message, 'SYSTEM'); }
 }
 
-// UPDATED: Sync Check
 function updateStatus(loxName, key, val) {
     if (!statusCache[loxName]) statusCache[loxName] = {};
     if (statusCache[loxName][key] === val) return; 
@@ -265,11 +293,16 @@ function updateStatus(loxName, key, val) {
     if (!entry) return;
 
     let shouldSend = false;
-    // Sensoren/Buttons immer senden, Lichter nur wenn Sync aktiv
-    if (entry.hue_type === 'sensor' || entry.hue_type === 'button') shouldSend = true;
-    else if (entry.sync_lox === true) shouldSend = true;
+    let category = 'SYSTEM';
 
-    if (shouldSend) sendToLoxone(loxName, key, val);
+    if (entry.hue_type === 'sensor') { shouldSend = true; category = 'SENSOR'; }
+    else if (entry.hue_type === 'button') { shouldSend = true; category = 'BUTTON'; }
+    else if (entry.sync_lox === true) { shouldSend = true; category = 'LIGHT'; } 
+
+    if (shouldSend) {
+        sendToLoxone(loxName, key, val);
+        if(config.debug) log.debug(`UDP OUT: ${loxName}.${key}=${val}`, category);
+    }
 }
 
 async function syncInitialStates() {
@@ -290,8 +323,8 @@ async function syncInitialStates() {
                 else if (l.color_temperature && l.color_temperature.mirek) updateStatus(name, 'hex', mirekToHex(l.color_temperature.mirek));
             }
         });
-        log.info("Initialer Status geladen.");
-    } catch(e) { log.warn("Sync fehlgeschlagen."); }
+        log.info("Initialer Status geladen.", 'SYSTEM');
+    } catch(e) { log.warn("Sync fehlgeschlagen.", 'SYSTEM'); }
 }
 
 function processHueEvents(events) {
@@ -303,35 +336,34 @@ function processHueEvents(events) {
                     const mapMeta = serviceToDeviceMap[m.hue_uuid];
                     return meta && mapMeta && meta.deviceId === mapMeta.deviceId;
                 });
+                
+                let logCat = 'SYSTEM';
+                if(entry) {
+                    if(entry.hue_type === 'light' || entry.hue_type === 'group') logCat = 'LIGHT';
+                    else if(entry.hue_type === 'sensor') logCat = 'SENSOR';
+                    else if(entry.hue_type === 'button') logCat = 'BUTTON';
+                } else if (d.motion) logCat = 'SENSOR';
+                else if (d.button) logCat = 'BUTTON';
+                else if (d.on) logCat = 'LIGHT';
+
                 if (entry) {
                     const lox = entry.loxone_name;
-                    if (d.motion && d.motion.motion !== undefined) updateStatus(lox, 'motion', d.motion.motion ? 1 : 0);
+                    if (d.motion && d.motion.motion !== undefined) { updateStatus(lox, 'motion', d.motion.motion ? 1 : 0); if(config.debug) log.debug(`Event: ${lox} Motion ${d.motion.motion}`, logCat); }
                     if (d.temperature) updateStatus(lox, 'temp', d.temperature.temperature);
                     if (d.light) updateStatus(lox, 'lux', hueLightToLux(d.light.light_level));
-                    if (d.on) updateStatus(lox, 'on', d.on.on ? 1 : 0);
+                    if (d.on) { updateStatus(lox, 'on', d.on.on ? 1 : 0); if(config.debug) log.debug(`Event: ${lox} On=${d.on.on}`, logCat); }
                     if (d.dimming) updateStatus(lox, 'bri', d.dimming.brightness);
-                    if (d.button) updateStatus(lox, 'button', d.button.last_event);
+                    if (d.button) { updateStatus(lox, 'button', d.button.last_event); log.debug(`Event: ${lox} Btn=${d.button.last_event}`, logCat); }
                     if (d.power_state) updateStatus(lox, 'bat', d.power_state.battery_level);
                     if (d.relative_rotary && d.relative_rotary.rotation) {
                         let steps = d.relative_rotary.rotation.steps;
                         if (d.relative_rotary.rotation.direction === 'counter_clock_wise') steps = -steps;
                         sendToLoxone(lox, 'rotary', steps);
+                        log.debug(`Event: ${lox} Dial=${steps}`, logCat);
                         statusCache[lox] = statusCache[lox] || {}; statusCache[lox]['rotary'] = steps; 
                     }
                     if (d.color && d.color.xy) updateStatus(lox, 'hex', xyToHex(d.color.xy.x, d.color.xy.y));
                     if (d.color_temperature && d.color_temperature.mirek) updateStatus(lox, 'hex', mirekToHex(d.color_temperature.mirek));
-                } else {
-                    let type = 'unknown'; let val = '';
-                    const meta = serviceToDeviceMap[d.id];
-                    const name = meta ? meta.deviceName : d.id;
-                    if(d.motion) { type='sensor'; val='Bewegung'; }
-                    else if(d.button) { type='button'; val='Taste'; }
-                    else if(d.relative_rotary) { type='button'; val='Drehen'; }
-                    else if(d.on) { type='light'; val='Schalten'; }
-                    if(type !== 'unknown') {
-                        const exists = detectedItems.find(i => i.id === d.id);
-                        if (!exists) { detectedItems.push({type, id: d.id, name, val}); if(detectedItems.length>10) detectedItems.shift(); }
-                    }
                 }
             });
         }
@@ -344,7 +376,7 @@ async function startEventStream() {
     eventStreamActive = true;
     await buildDeviceMap();
     await syncInitialStates();
-    log.info("Starte EventStream...");
+    log.info("Starte EventStream...", 'SYSTEM');
     try {
         const response = await axios({ method: 'get', url: `https://${config.bridgeIp}/eventstream/clip/v2`, headers: { 'hue-application-key': config.appKey, 'Accept': 'text/event-stream' }, httpsAgent, responseType: 'stream' });
         response.data.on('data', (chunk) => {
@@ -381,10 +413,10 @@ app.get('/api/mapping', (req, res) => res.json(mapping));
 app.get('/api/detected', (req, res) => res.json([...detectedItems].reverse()));
 app.get('/api/status', (req, res) => res.json(statusCache));
 app.get('/api/logs', (req, res) => res.json(logBuffer));
-app.get('/api/settings', (req, res) => res.json({ bridge_ip: config.bridgeIp, loxone_ip: config.loxoneIp, loxone_port: config.loxonePort, http_port: HTTP_PORT, debug: config.debug, key_configured: isConfigured, transitionTime: config.transitionTime }));
+app.get('/api/settings', (req, res) => res.json({ bridge_ip: config.bridgeIp, loxone_ip: config.loxoneIp, loxone_port: config.loxonePort, http_port: HTTP_PORT, debug: config.debug, key_configured: isConfigured, transitionTime: config.transitionTime, version: pjson.version }));
 app.post('/api/settings/debug', (req, res) => { config.debug = !!req.body.active; saveConfigToFile(); res.json({success:true}); });
 
-// --- DIAGNOSTICS ---
+// --- DIAGNOSTICS (OPTIMIZED + BATTERY) ---
 app.get('/api/diagnostics', async (req, res) => {
     if(!isConfigured) return res.status(503).json({ error: "Not configured" });
     try {
@@ -406,8 +438,11 @@ app.get('/api/diagnostics', async (req, res) => {
         if(resDev.data?.data) {
             resDev.data.data.forEach(device => {
                 const deviceId = device.id;
+                
+                // Find Zigbee info for this device
                 const zigbee = resZigbee.data.data.find(z => z.owner.rid === deviceId);
                 const power = powerMap[deviceId];
+                
                 let type = 'Sonstiges';
                 if (device.services.some(s => s.rtype === 'light')) type = 'Licht';
                 else if (device.services.some(s => s.rtype === 'motion')) type = 'Sensor';
@@ -427,9 +462,11 @@ app.get('/api/diagnostics', async (req, res) => {
                 });
             });
         }
+        
         result.sort((a,b) => {
-            const aCrit = (a.status !== 'connected') || (a.battery !== null && a.battery <= 20);
-            const bCrit = (b.status !== 'connected') || (b.battery !== null && b.battery <= 20);
+            const aCrit = (a.status === 'connectivity_issue' || a.status === 'disconnected') || (a.battery !== null && a.battery <= 20);
+            const bCrit = (b.status === 'connectivity_issue' || b.status === 'disconnected') || (b.battery !== null && b.battery <= 20);
+            
             if (aCrit && !bCrit) return -1; 
             if (!aCrit && bCrit) return 1;  
             if (a.type !== b.type) return a.type.localeCompare(b.type);
@@ -437,14 +474,14 @@ app.get('/api/diagnostics', async (req, res) => {
         });
         res.json(result);
     } catch (e) {
-        log.error("Diag Error: " + e.message);
+        log.error("Diag Error: " + e.message, 'SYSTEM');
         res.status(500).json({ error: e.message });
     }
 });
 
 app.get('/:name/:value', async (req, res) => {
     const { name, value } = req.params;
-    log.debug(`IN: /${name}/${value}`);
+    log.debug(`IN: /${name}/${value}`, 'LIGHT'); 
 
     if(!isConfigured) return res.status(503).send("Not Configured");
     
@@ -458,8 +495,9 @@ app.get('/:name/:value', async (req, res) => {
     if (isGlobalAll || isMappedAll) {
         const targets = mapping.filter(e => e.hue_type === 'light' || e.hue_type === 'group');
         res.status(200).send(`Starting sequence for ${targets.length} devices`);
+
         (async () => {
-            log.info(`Starte Sequenz für ${targets.length} Geräte...`);
+            log.info(`Starte Sequenz für ${targets.length} Geräte...`, 'LIGHT');
             const delay = 100;
             for (const target of targets) {
                 executeCommand(target, value, 0);

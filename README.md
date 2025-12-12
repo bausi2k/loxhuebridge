@@ -160,6 +160,20 @@ Port: 7000
 | **Temperatur** | `hue.bwm_flur.temp \v` |
 | **Schalter** | `hue.taster.button \v` |
 
+
+### 🔘 Taster & Drehregler
+
+Die Bridge bereitet Events von Tastern (z.B. Hue Tap Dial) intelligent auf:
+
+| Gerät | Befehl (Loxone) | Beschreibung |
+|---|---|---|
+| **Taste (Klick)** | `hue.taster.button short_release` | Wird gesendet beim Loslassen (Toggle-Logik). |
+| **Taste (Lang)** | `hue.taster.button long_press` | Wird gesendet beim Halten (Dimm-Logik). |
+| **Drehring (Rechts)** | `hue.dial.rotary cw` | Clockwise. Senden 1 Impuls pro Schritt. Ideal für `V+`. |
+| **Drehring (Links)** | `hue.dial.rotary ccw` | Counter-Clockwise. Ideal für `V-`. |
+
+*Hinweis: Technische Events wie `initial_press` oder `repeat` werden automatisch gefiltert, um Loxone nicht zu überfluten.*
+
 ---
 
 ## 🇬🇧 English Version

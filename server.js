@@ -1,4 +1,4 @@
-const express = require('express'); // dotenv entfernt
+const express = require('express');
 const axios = require('axios');
 const fs = require('fs');
 const https = require('https');
@@ -151,30 +151,21 @@ function rgbToMirekFallback(r, g, b, minM, maxM) {
 }
 function hueLightToLux(v) { return Math.round(Math.pow(10, (v - 1) / 10000)); }
 
-
-
 // --- QUEUE LOGIC ---
 const commandState = {};
 
 async function updateLightWithQueue(uuid, type, payload, loxName, forcedDuration = null) {
     if (!commandState[uuid]) commandState[uuid] = { busy: false, next: null };
 
-    // Default Transition aus Config
     let duration = config.transitionTime !== undefined ? config.transitionTime : 400;
 
-    // Check: Ist es ein reiner An/Aus Befehl?
     const isDigitalSwitch = Object.keys(payload).length === 1 && payload.on !== undefined;
-    
     if (isDigitalSwitch) {
-        if (payload.on.on === true) duration = 0; // Ziel: Sofort (wird unten zu "Standard")
+        if (payload.on.on === true) duration = 0; 
     }
 
     if (forcedDuration !== null) duration = forcedDuration;
 
-    // --- FIX V1.7.2 ---
-    // Wenn Duration 0 ist, senden wir KEIN dynamics Objekt.
-    // Billige Controller stürzen bei duration:0 ab. 
-    // Weglassen zwingt Controller zum Default-Verhalten (meist Fade).
     if (duration > 0) {
         payload.dynamics = { duration: duration };
     }
@@ -188,14 +179,10 @@ async function updateLightWithQueue(uuid, type, payload, loxName, forcedDuration
     await sendToHueRecursive(uuid, type, payload, loxName);
 }
 
-
-
 async function sendToHueRecursive(uuid, type, payload, loxName) {
     try {
         const url = `https://${config.bridgeIp}/clip/v2/resource/${type}/${uuid}`;
-        // LOG MIT KATEGORIE 'LIGHT'
         log.debug(`OUT -> Hue (${loxName}): ${JSON.stringify(payload)}`, 'LIGHT');
-        
         await axios.put(url, payload, { headers: { 'hue-application-key': config.appKey }, httpsAgent });
         updateStatus(loxName, 'on', payload.on?.on ? 1 : 0);
         if(payload.dimming) updateStatus(loxName, 'bri', payload.dimming.brightness);
@@ -256,12 +243,15 @@ async function executeCommand(entry, value, forcedTransition = null) {
 }
 
 
-// --- UDP ---
+// --- UDP SEND ---
 const udpClient = dgram.createSocket('udp4');
-function sendToLoxone(baseName, suffix, value) {
+function sendToLoxone(baseName, suffix, value, category = 'SYSTEM') {
     if (!config.loxoneIp) return;
     const msg = `hue.${baseName}.${suffix} ${value}`;
-    udpClient.send(Buffer.from(msg), config.loxonePort, config.loxoneIp, (err) => { if(err) log.error(`UDP Err: ${err}`, 'SYSTEM'); });
+    udpClient.send(Buffer.from(msg), config.loxonePort, config.loxoneIp, (err) => { 
+        if(err) log.error(`UDP Err: ${err}`, category);
+        else if(config.debug) log.debug(`UDP OUT: ${msg}`, category);
+    });
 }
 
 // --- LOGIK ---
@@ -300,8 +290,7 @@ function updateStatus(loxName, key, val) {
     else if (entry.sync_lox === true) { shouldSend = true; category = 'LIGHT'; } 
 
     if (shouldSend) {
-        sendToLoxone(loxName, key, val);
-        if(config.debug) log.debug(`UDP OUT: ${loxName}.${key}=${val}`, category);
+        sendToLoxone(loxName, key, val, category);
     }
 }
 
@@ -353,15 +342,28 @@ function processHueEvents(events) {
                     if (d.light) updateStatus(lox, 'lux', hueLightToLux(d.light.light_level));
                     if (d.on) { updateStatus(lox, 'on', d.on.on ? 1 : 0); if(config.debug) log.debug(`Event: ${lox} On=${d.on.on}`, logCat); }
                     if (d.dimming) updateStatus(lox, 'bri', d.dimming.brightness);
-                    if (d.button) { updateStatus(lox, 'button', d.button.last_event); log.debug(`Event: ${lox} Btn=${d.button.last_event}`, logCat); }
-                    if (d.power_state) updateStatus(lox, 'bat', d.power_state.battery_level);
-                    if (d.relative_rotary && d.relative_rotary.rotation) {
-                        let steps = d.relative_rotary.rotation.steps;
-                        if (d.relative_rotary.rotation.direction === 'counter_clock_wise') steps = -steps;
-                        sendToLoxone(lox, 'rotary', steps);
-                        log.debug(`Event: ${lox} Dial=${steps}`, logCat);
-                        statusCache[lox] = statusCache[lox] || {}; statusCache[lox]['rotary'] = steps; 
+                    
+                    // BUTTON FILTER (V1.7.0): Nur short_release und long_press
+                    if (d.button) { 
+                        const evt = d.button.last_event;
+                        if (evt === 'short_release' || evt === 'long_press') {
+                            updateStatus(lox, 'button', evt); 
+                            log.debug(`Event: ${lox} Btn=${evt}`, logCat); 
+                        } else if(config.debug) log.debug(`Ignored Event: ${lox} (${evt})`, logCat);
                     }
+
+                    if (d.power_state) updateStatus(lox, 'bat', d.power_state.battery_level);
+                    
+                    // ROTARY LOGIC (V1.7.0): CW/CCW
+                    if (d.relative_rotary) {
+                        let rotaryData = d.relative_rotary.rotary_report || d.relative_rotary.last_event || d.relative_rotary;
+                        if (rotaryData && rotaryData.rotation) {
+                            const dir = rotaryData.rotation.direction === 'clock_wise' ? 'cw' : 'ccw';
+                            sendToLoxone(lox, 'rotary', dir, logCat);
+                            log.debug(`Event: ${lox} Dial=${dir}`, logCat);
+                        }
+                    }
+
                     if (d.color && d.color.xy) updateStatus(lox, 'hex', xyToHex(d.color.xy.x, d.color.xy.y));
                     if (d.color_temperature && d.color_temperature.mirek) updateStatus(lox, 'hex', mirekToHex(d.color_temperature.mirek));
                 }
@@ -406,8 +408,74 @@ app.get('/api/setup/discover', async (req, res) => { try { const r = await axios
 app.post('/api/setup/register', async (req, res) => { try { const r = await axios.post(`https://${req.body.ip}/api`, { devicetype: "loxHueBridge" }, { httpsAgent }); if(r.data[0].success) { config.bridgeIp = req.body.ip; config.appKey = r.data[0].success.username; return res.json({success:true}); } res.json({success:false, error: r.data[0].error.description}); } catch(e) { res.status(500).json({error:e.message}); } });
 app.post('/api/setup/loxone', (req, res) => { config.loxoneIp = req.body.loxoneIp; config.loxonePort = parseInt(req.body.loxonePort); config.debug = !!req.body.debug; if(req.body.transitionTime!==undefined) config.transitionTime=parseInt(req.body.transitionTime); saveConfigToFile(); isConfigured=true; startEventStream(); res.json({success:true}); });
 app.get('/api/download/outputs', (req, res) => { const filterNames = req.query.names ? req.query.names.split(',') : null; let lights = mapping.filter(m => m.hue_type === 'light' || m.hue_type === 'group'); if (filterNames) lights = lights.filter(m => filterNames.includes(m.loxone_name)); let xml = `<?xml version="1.0" encoding="utf-8"?>\n<VirtualOut Title="LoxHueBridge Lights" Address="http://${getServerIp()}:${HTTP_PORT}" CmdInit="" CloseAfterSend="true" CmdSep=";">\n\t<Info templateType="3" minVersion="16011106"/>\n`; lights.forEach(l => { const t = l.loxone_name.charAt(0).toUpperCase() + l.loxone_name.slice(1) + " (Hue)"; xml += `\t<VirtualOutCmd Title="${t}" Comment="${l.hue_name}" CmdOn="/${l.loxone_name}/<v>" Analog="true"/>\n`; }); xml += `</VirtualOut>`; res.set('Content-Type', 'text/xml'); res.set('Content-Disposition', `attachment; filename="lox_outputs.xml"`); res.send(xml); });
-app.get('/api/download/inputs', (req, res) => { const filterNames = req.query.names ? req.query.names.split(',') : null; let sensors = mapping.filter(m => m.hue_type === 'sensor' || m.hue_type === 'button'); if (filterNames) sensors = sensors.filter(m => filterNames.includes(m.loxone_name)); let xml = `<?xml version="1.0" encoding="utf-8"?>\n<VirtualInUdp Title="LoxHueBridge Sensors" Port="${config.loxonePort}">\n\t<Info templateType="1" minVersion="16011106"/>\n`; sensors.forEach(s => { const n = s.loxone_name; const t = n.charAt(0).toUpperCase() + n.slice(1); if (s.hue_type === 'sensor') { xml += `\t<VirtualInUdpCmd Title="${t} Motion" Check="hue.${n}.motion \\v" Analog="true" DefVal="0" MinVal="0" MaxVal="1" Unit="&lt;v&gt;"/>\n`; xml += `\t<VirtualInUdpCmd Title="${t} Lux" Check="hue.${n}.lux \\v" Analog="true" DefVal="0" MinVal="0" MaxVal="65000" Unit="&lt;v&gt; lx"/>\n`; xml += `\t<VirtualInUdpCmd Title="${t} Temp" Check="hue.${n}.temp \\v" Analog="true" DefVal="0" MinVal="-50" MaxVal="100" Unit="&lt;v.1&gt; °C"/>\n`; xml += `\t<VirtualInUdpCmd Title="${t} Battery" Check="hue.${n}.bat \\v" Analog="true" DefVal="0" MinVal="0" MaxVal="100" Unit="&lt;v&gt; %"/>\n`; } else { xml += `\t<VirtualInUdpCmd Title="${t} Event" Check="hue.${n}.button \\v" Analog="false"/>\n`; xml += `\t<VirtualInUdpCmd Title="${t} Rotary" Check="hue.${n}.rotary \\v" Analog="true" DefVal="0" MinVal="-1000" MaxVal="1000" Unit="steps"/>\n`; } }); xml += `</VirtualInUdp>`; res.set('Content-Type', 'text/xml'); res.set('Content-Disposition', `attachment; filename="lox_inputs.xml"`); res.send(xml); });
-app.get('/api/targets', async (req, res) => { if(!isConfigured) return res.status(503).json([]); try { await buildDeviceMap(); const [l, r, z, d] = await Promise.all([ axios.get(`https://${config.bridgeIp}/clip/v2/resource/light`, { headers: { 'hue-application-key': config.appKey }, httpsAgent }), axios.get(`https://${config.bridgeIp}/clip/v2/resource/room`, { headers: { 'hue-application-key': config.appKey }, httpsAgent }), axios.get(`https://${config.bridgeIp}/clip/v2/resource/zone`, { headers: { 'hue-application-key': config.appKey }, httpsAgent }), axios.get(`https://${config.bridgeIp}/clip/v2/resource/device`, { headers: { 'hue-application-key': config.appKey }, httpsAgent }) ]); let t = []; if(l.data?.data) l.data.data.forEach(x => { t.push({ uuid:x.id, name:x.metadata.name, type:'light', capabilities: lightCapabilities[x.id] || null }); }); [...(r.data?.data||[]), ...(z.data?.data||[])].forEach(x => { const s = x.services.find(y => y.rtype === 'grouped_light'); if(s) t.push({uuid:s.rid, name:x.metadata.name, type:'group'}); }); if(d.data?.data) d.data.data.forEach(x => { const m = x.services.find(y => y.rtype === 'motion'); if(m) t.push({uuid:m.rid, name:x.metadata.name, type:'sensor'}); const b = x.services.find(y => y.rtype === 'button'); const rot = x.services.find(y => y.rtype === 'relative_rotary'); if(b || rot) { const mainId = b ? b.rid : rot.rid; t.push({uuid: mainId, name: `${x.metadata.name} (Switch/Dial)`, type:'button'}); } }); t.sort((a,b) => a.name.localeCompare(b.name)); res.json(t); } catch(e) { res.status(500).json([]); } });
+
+// XML INPUTS (Updated for 1.7.0)
+app.get('/api/download/inputs', (req, res) => { 
+    const filterNames = req.query.names ? req.query.names.split(',') : null; 
+    let sensors = mapping.filter(m => m.hue_type === 'sensor' || m.hue_type === 'button'); 
+    if (filterNames) sensors = sensors.filter(m => filterNames.includes(m.loxone_name)); 
+    
+    let xml = `<?xml version="1.0" encoding="utf-8"?>\n<VirtualInUdp Title="LoxHueBridge Sensors" Port="${config.loxonePort}">\n\t<Info templateType="1" minVersion="16011106"/>\n`; 
+    sensors.forEach(s => { 
+        const n = s.loxone_name; const t = n.charAt(0).toUpperCase() + n.slice(1); 
+        if (s.hue_type === 'sensor') { 
+            xml += `\t<VirtualInUdpCmd Title="${t} Motion" Check="hue.${n}.motion \\v" Analog="true" DefVal="0" MinVal="0" MaxVal="1" Unit="&lt;v&gt;"/>\n`; 
+            xml += `\t<VirtualInUdpCmd Title="${t} Lux" Check="hue.${n}.lux \\v" Analog="true" DefVal="0" MinVal="0" MaxVal="65000" Unit="&lt;v&gt; lx"/>\n`; 
+            xml += `\t<VirtualInUdpCmd Title="${t} Temp" Check="hue.${n}.temp \\v" Analog="true" DefVal="0" MinVal="-50" MaxVal="100" Unit="&lt;v.1&gt; °C"/>\n`; 
+            xml += `\t<VirtualInUdpCmd Title="${t} Battery" Check="hue.${n}.bat \\v" Analog="true" DefVal="0" MinVal="0" MaxVal="100" Unit="&lt;v&gt; %"/>\n`; 
+        } else { 
+            xml += `\t<VirtualInUdpCmd Title="${t} Event" Check="hue.${n}.button \\v" Analog="false"/>\n`; 
+            
+            // Check for Rotary Device
+            if(s.hue_name.includes("Dreh") || s.hue_name.includes("Rotary") || s.hue_name.includes("Dial")) {
+                xml += `\t<VirtualInUdpCmd Title="${t} Rotary CW" Check="hue.${n}.rotary cw" Analog="false"/>\n`; 
+                xml += `\t<VirtualInUdpCmd Title="${t} Rotary CCW" Check="hue.${n}.rotary ccw" Analog="false"/>\n`; 
+            }
+        } 
+    }); 
+    xml += `</VirtualInUdp>`; 
+    res.set('Content-Type', 'text/xml'); 
+    res.set('Content-Disposition', `attachment; filename="lox_inputs.xml"`); 
+    res.send(xml); 
+});
+
+// --- DISCOVERY TARGETS (FIX: Tap Dial Switch Split) ---
+app.get('/api/targets', async (req, res) => { 
+    if(!isConfigured) return res.status(503).json([]); 
+    try { 
+        await buildDeviceMap(); 
+        const [l, r, z, d] = await Promise.all([ 
+            axios.get(`https://${config.bridgeIp}/clip/v2/resource/light`, { headers: { 'hue-application-key': config.appKey }, httpsAgent }), 
+            axios.get(`https://${config.bridgeIp}/clip/v2/resource/room`, { headers: { 'hue-application-key': config.appKey }, httpsAgent }), 
+            axios.get(`https://${config.bridgeIp}/clip/v2/resource/zone`, { headers: { 'hue-application-key': config.appKey }, httpsAgent }), 
+            axios.get(`https://${config.bridgeIp}/clip/v2/resource/device`, { headers: { 'hue-application-key': config.appKey }, httpsAgent }) 
+        ]); 
+        
+        let t = []; 
+        if(l.data?.data) l.data.data.forEach(x => { t.push({ uuid:x.id, name:x.metadata.name, type:'light', capabilities: lightCapabilities[x.id] || null }); }); 
+        [...(r.data?.data||[]), ...(z.data?.data||[])].forEach(x => { const s = x.services.find(y => y.rtype === 'grouped_light'); if(s) t.push({uuid:s.rid, name:x.metadata.name, type:'group'}); }); 
+        
+        if(d.data?.data) d.data.data.forEach(x => { 
+            const m = x.services.find(y => y.rtype === 'motion'); 
+            if(m) t.push({uuid:m.rid, name:x.metadata.name, type:'sensor'}); 
+            
+            const buttons = x.services.filter(y => y.rtype === 'button');
+            buttons.forEach((b, idx) => {
+                let suffix = buttons.length > 1 ? ` (Taste ${idx + 1})` : '';
+                t.push({uuid: b.rid, name: `${x.metadata.name}${suffix}`, type:'button'});
+            });
+
+            const rot = x.services.find(y => y.rtype === 'relative_rotary');
+            if(rot) {
+                t.push({uuid: rot.rid, name: `${x.metadata.name} (Drehring)`, type:'button'});
+            }
+        }); 
+        
+        t.sort((a,b) => a.name.localeCompare(b.name)); 
+        res.json(t); 
+    } catch(e) { res.status(500).json([]); } 
+});
+
 app.post('/api/mapping', (req, res) => { mapping = req.body.filter(m => m.loxone_name); fs.writeFileSync(MAPPING_FILE, JSON.stringify(mapping, null, 4)); mapping.forEach(m => { const mapMeta = serviceToDeviceMap[m.hue_uuid]; detectedItems = detectedItems.filter(d => { if(d.type === 'command') return d.name !== m.loxone_name; const detMeta = serviceToDeviceMap[d.id]; if(mapMeta && detMeta && mapMeta.deviceId === detMeta.deviceId) return false; return d.id !== m.hue_uuid; }); }); res.json({success:true}); });
 app.get('/api/mapping', (req, res) => res.json(mapping));
 app.get('/api/detected', (req, res) => res.json([...detectedItems].reverse()));
@@ -438,11 +506,8 @@ app.get('/api/diagnostics', async (req, res) => {
         if(resDev.data?.data) {
             resDev.data.data.forEach(device => {
                 const deviceId = device.id;
-                
-                // Find Zigbee info for this device
                 const zigbee = resZigbee.data.data.find(z => z.owner.rid === deviceId);
                 const power = powerMap[deviceId];
-                
                 let type = 'Sonstiges';
                 if (device.services.some(s => s.rtype === 'light')) type = 'Licht';
                 else if (device.services.some(s => s.rtype === 'motion')) type = 'Sensor';
@@ -462,11 +527,9 @@ app.get('/api/diagnostics', async (req, res) => {
                 });
             });
         }
-        
         result.sort((a,b) => {
             const aCrit = (a.status === 'connectivity_issue' || a.status === 'disconnected') || (a.battery !== null && a.battery <= 20);
             const bCrit = (b.status === 'connectivity_issue' || b.status === 'disconnected') || (b.battery !== null && b.battery <= 20);
-            
             if (aCrit && !bCrit) return -1; 
             if (!aCrit && bCrit) return 1;  
             if (a.type !== b.type) return a.type.localeCompare(b.type);
@@ -488,7 +551,6 @@ app.get('/:name/:value', async (req, res) => {
     const search = name.toLowerCase();
     const entry = mapping.find(m => m.loxone_name === search);
 
-    // 1. CHECK GLOBAL "ALL" COMMAND
     const isGlobalAll = (search === 'all' || search === 'alles');
     const isMappedAll = (entry && entry.hue_uuid === 'pseudo-all');
 

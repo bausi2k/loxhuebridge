@@ -4,6 +4,25 @@ Alle nennenswerten Änderungen an diesem Projekt werden in dieser Datei dokument
 
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 und dieses Projekt hält sich an [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [1.7.0] - 2025-12-12
+
+### 🚀 Major Features
+- **Tap Dial Switch Support:** Der Philips Hue Tap Dial Switch wird nun vollständig unterstützt!
+    - Alle 4 Tasten werden als einzelne Geräte erkannt.
+    - Der Drehring (Rotary) wird als eigenes Gerät erkannt.
+- **Smart Button Logic:** Taster-Events werden nun gefiltert:
+    - Nur noch `short_release` (Klick) und `long_press` (Halten) werden an Loxone gesendet.
+    - Irrelevante Events wie `initial_press` oder `repeat` werden unterdrückt, um Traffic zu sparen.
+- **Rotary Logic:** Der Drehring sendet nun `cw` (Clockwise) und `ccw` (Counter-Clockwise) als Text an Loxone. Das ermöglicht das direkte Anbinden an `V+` und `V-` Eingänge von Dimmern.
+
+### 🛠 Verbesserungen
+- **XML Export:** Der Input-Generator erstellt nun automatisch digitale Eingänge für Drehregler (CW/CCW).
+- **Stabilität:** `dotenv` Dependency entfernt und `package.json` Laderoutine abgesichert (verhindert Abstürze in Docker-Umgebungen).
+- **UI:** Verbesserte Log-Darstellung mit Kategorien (Light, Sensor, Button).
+
+---
+
 ## [1.6.3] - 2025-12-08
 
 ### 🛠 Bugfixes & Kompatibilität

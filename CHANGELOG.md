@@ -5,6 +5,15 @@ Alle nennenswerten Änderungen an diesem Projekt werden in dieser Datei dokument
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 und dieses Projekt hält sich an [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.2] - 2025-12-15
+
+### 🐛 Bugfixes
+- **Button Event Cache Fix:** Behebt ein Problem, bei dem wiederholte Tastendrücke (z.B. zweimaliges Drücken für "An" und "Aus") von der internen Cache-Logik verschluckt wurden, da sich der Status-Text (z.B. `short_release`) nicht geändert hatte.
+    - **Jetzt:** Events von Tastern (`button`) und Drehreglern (`rotary`) umgehen nun den Cache und senden **immer** ein UDP-Paket an Loxone, auch wenn der Wert identisch zum vorherigen ist.
+    - Sensoren (Temp, Motion, Lux) werden weiterhin dedupliziert, um das Netzwerk nicht zu fluten.
+
+---
+
 ## [1.7.1] - 2025-12-15
 
 ### 🛡️ Global Rate Limiting

@@ -5,6 +5,21 @@ Alle nennenswerten Änderungen an diesem Projekt werden in dieser Datei dokument
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 und dieses Projekt hält sich an [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.1] - 2025-12-15
+
+### 🛡️ Global Rate Limiting
+- **Traffic Queue:** Implementierung einer globalen Warteschlange, um Fehler bei der Hue Bridge ("429 Too Many Requests") zu verhindern.
+    - Befehle für Einzel-Lichter werden auf max. 8-10 pro Sekunde begrenzt.
+    - Befehle für Gruppen/Zonen werden auf max. 1 pro Sekunde begrenzt.
+    - Loxone kann nun "feuern" so schnell es will (z.B. Szenen), die Bridge arbeitet alles sauber nacheinander ab.
+
+### 🛠 Fixes & Verbesserungen
+- **Smart Button Logic:** Taster-Events werden nun sauber gefiltert (`short_release` & `long_press`), um Fehlschaltungen zu vermeiden.
+- **Rotary (Drehregler):** Sendet nun `cw` (rechts) und `ccw` (links) als Text für einfachere Einbindung in Loxone.
+- **Discovery:** Tap Dial Switch wird nun vollständig erkannt (4 Tasten + Drehring separat).
+
+---
+
 ## [1.7.0] - 2025-12-12
 
 ### 🚀 Major Features

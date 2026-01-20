@@ -293,7 +293,6 @@ async function buildDeviceMap() {
     } catch (e) { log.error("Map Error: " + e.message, 'SYSTEM'); }
 }
 
-// --- FIX V1.7.2: STATUS UPDATE DEDUPLICATION ---
 function updateStatus(loxName, key, val) {
     if (!statusCache[loxName]) statusCache[loxName] = {};
     
@@ -384,7 +383,6 @@ function processHueEvents(events) {
                         let rotaryData = d.relative_rotary.rotary_report || d.relative_rotary.last_event || d.relative_rotary;
                         if (rotaryData && rotaryData.rotation) {
                             const dir = rotaryData.rotation.direction === 'clock_wise' ? 'cw' : 'ccw';
-                            // Verwende sendToLoxone direkt oder updateStatus (jetzt da Fix drin ist, geht auch updateStatus)
                             sendToLoxone(lox, 'rotary', dir, logCat);
                             log.debug(`Event: ${lox} Dial=${dir}`, logCat);
                         }
@@ -398,23 +396,101 @@ function processHueEvents(events) {
     });
 }
 
+// --- EVENT STREAM & WATCHDOG (FIX V1.7.3) ---
 let eventStreamActive = false;
+let eventStreamRequest = null;
+let watchdogInterval = null;
+let lastEventTimestamp = Date.now();
+
+// Der Watchdog prüft alle 30 Sekunden, ob die Verbindung noch lebt
+function startWatchdog() {
+    if (watchdogInterval) clearInterval(watchdogInterval);
+    
+    watchdogInterval = setInterval(() => {
+        if (!eventStreamActive) return;
+
+        // Wenn länger als 60 Sekunden keine Daten kamen (Hue sendet normalerweise Heartbeats)
+        const silenceDuration = Date.now() - lastEventTimestamp;
+        if (silenceDuration > 60000) {
+            log.warn(`EventStream Watchdog: Keine Daten seit ${Math.round(silenceDuration/1000)}s. Erzwinge Neustart...`, 'SYSTEM');
+            restartEventStream();
+        }
+    }, 30000);
+}
+
+function restartEventStream() {
+    if (eventStreamRequest) {
+        try {
+            // Verbindung gewaltsam zerstören
+            eventStreamRequest.destroy(); 
+        } catch (e) { console.error(e); }
+    }
+    // Flags zurücksetzen, damit startEventStream() wieder arbeiten darf
+    eventStreamActive = false;
+    eventStreamRequest = null;
+    
+    // Kurze Pause, dann Neustart
+    setTimeout(startEventStream, 1000);
+}
+
 async function startEventStream() {
+    // Verhindert doppelte Streams
     if (!isConfigured || eventStreamActive) return;
+    
     eventStreamActive = true;
+    lastEventTimestamp = Date.now(); // Reset Timer
+    startWatchdog(); // Hund rauslassen
+
     await buildDeviceMap();
     await syncInitialStates();
+    
     log.info("Starte EventStream...", 'SYSTEM');
+    
     try {
-        const response = await axios({ method: 'get', url: `https://${config.bridgeIp}/eventstream/clip/v2`, headers: { 'hue-application-key': config.appKey, 'Accept': 'text/event-stream' }, httpsAgent, responseType: 'stream' });
+        const response = await axios({ 
+            method: 'get', 
+            url: `https://${config.bridgeIp}/eventstream/clip/v2`, 
+            headers: { 
+                'hue-application-key': config.appKey, 
+                'Accept': 'text/event-stream' 
+            }, 
+            httpsAgent, 
+            responseType: 'stream',
+            timeout: 0 // WICHTIG: Kein Axios-Timeout, wir managen das selbst
+        });
+
+        // Referenz speichern für den Kill-Switch
+        eventStreamRequest = response.data;
+
         response.data.on('data', (chunk) => {
+            // LEBENSZEICHEN! Timer zurücksetzen
+            lastEventTimestamp = Date.now();
+            
             const lines = chunk.toString().split('\n');
             lines.forEach(line => {
-                if (line.startsWith('data: ')) { try { processHueEvents(JSON.parse(line.substring(6))); } catch (e) {} }
+                if (line.startsWith('data: ')) { 
+                    try { processHueEvents(JSON.parse(line.substring(6))); } catch (e) {} 
+                }
             });
         });
-        response.data.on('end', () => { eventStreamActive = false; setTimeout(startEventStream, 5000); });
-    } catch (error) { eventStreamActive = false; setTimeout(startEventStream, 10000); }
+
+        response.data.on('end', () => { 
+            log.warn("EventStream vom Server beendet.", 'SYSTEM');
+            eventStreamActive = false; 
+            setTimeout(startEventStream, 5000); 
+        });
+
+        response.data.on('error', (err) => {
+            log.error("EventStream Fehler: " + err.message, 'SYSTEM');
+            eventStreamActive = false;
+            setTimeout(startEventStream, 5000);
+        });
+
+    } catch (error) { 
+        log.error("EventStream Verbindungsfehler: " + error.message, 'SYSTEM');
+        eventStreamActive = false; 
+        setTimeout(startEventStream, 10000); 
+    }
 }
 
 const app = express();

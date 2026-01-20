@@ -5,6 +5,20 @@ Alle nennenswerten Änderungen an diesem Projekt werden in dieser Datei dokument
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 und dieses Projekt hält sich an [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.3] - 2026-01-20
+
+### 🛡️ Stabilität
+- **EventStream Watchdog:** Behebt das Problem ("Zombie Connection"), bei dem nach längerer Laufzeit (10-14 Tage) keine Sensor-Updates mehr empfangen wurden.
+    - Der neue Watchdog prüft auf eingehende Daten (inkl. Hue Heartbeats).
+    - Bei Stille (>60s) wird die Verbindung proaktiv getrennt und neu aufgebaut.
+
+### 🚀 Features
+- **Configurable Throttling:** Die Drosselung der Befehls-Queue ist nun im System-Tab einstellbar (0ms - 1000ms).
+    - Ermöglicht Power-Usern, die Reaktionsgeschwindigkeit zu erhöhen oder bei Verbindungsproblemen (Error 429) konservativer zu agieren.
+    - Standardwert: 100ms.
+
+---
+
 ## [1.7.2] - 2025-12-15
 
 ### 🐛 Bugfixes

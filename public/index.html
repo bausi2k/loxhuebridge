@@ -303,7 +303,7 @@
         if(consoleDiv.innerHTML.length !== html.length) consoleDiv.innerHTML = html;
     }
 
-    // --- DIAGNOSTICS (OPTIMIZED) ---
+    // --- DIAGNOSTICS (SORTED V1.7.4) ---
     async function loadDiagnostics() {
         const container = document.getElementById('diagContent');
         container.innerHTML = '<div style="text-align:center">Lade Daten...</div>';
@@ -312,10 +312,27 @@
             const data = await res.json();
             if(data.length === 0) { container.innerHTML = 'Keine Daten.'; return; }
             
-            const lights = data.filter(d => d.type === 'Licht');
-            const sensors = data.filter(d => d.type === 'Sensor');
-            const buttons = data.filter(d => d.type === 'Taster');
-            const others = data.filter(d => d.type === 'Sonstiges' || d.type === 'Unbekannt');
+            // SORT FUNCTION:
+            // 1. Connection Errors First
+            // 2. Low Battery First (Ascending)
+            // 3. Name Alphabetical
+            const sortFn = (a, b) => {
+                const aErr = a.status !== 'connected';
+                const bErr = b.status !== 'connected';
+                if (aErr && !bErr) return -1;
+                if (!aErr && bErr) return 1;
+
+                const batA = (a.battery !== null && a.battery !== undefined) ? a.battery : 101;
+                const batB = (b.battery !== null && b.battery !== undefined) ? b.battery : 101;
+                if (batA !== batB) return batA - batB;
+
+                return a.name.localeCompare(b.name);
+            };
+
+            const lights = data.filter(d => d.type === 'Licht').sort(sortFn);
+            const sensors = data.filter(d => d.type === 'Sensor').sort(sortFn);
+            const buttons = data.filter(d => d.type === 'Taster').sort(sortFn);
+            const others = data.filter(d => d.type === 'Sonstiges' || d.type === 'Unbekannt').sort(sortFn);
             
             let html = "";
             html += renderDiagSection("💡 Lichter", lights);
@@ -351,7 +368,7 @@
     }
 
     // --- HELFER ---
-    function updateTransLabel(val) { document.getElementById('transVal').innerText = val + ' ms'; }
+    function updateTransLabel(val, id, unit) { document.getElementById(id).innerText = val + ' ' + unit; }
     function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
     function openExportModal() {
@@ -522,7 +539,11 @@
                 if (st.bri !== undefined) badges += `<span class="badge">${Math.round(st.bri)}%</span>`;
                 if (st.hex) badges += `<span class="color-dot" style="background-color:${st.hex}"></span>`;
             }
-            if (st.rotary !== undefined) { const val = st.rotary > 0 ? `+${st.rotary}` : st.rotary; badges += `<span class="badge" style="background:#e1f5fe">🔄 ${val}</span>`; }
+            if (st.rotary !== undefined) { 
+                // Fix V1.8.1: Text statt Zahl
+                const val = (st.rotary === 'cw' || st.rotary === 'ccw') ? st.rotary.toUpperCase() : st.rotary;
+                badges += `<span class="badge" style="background:#e1f5fe">🔄 ${val}</span>`; 
+            }
 
             let infoBtn = '';
             if(m.hue_type === 'light') infoBtn = `<button class="info-btn" onclick="showDetails('${m.hue_uuid}')">ℹ️</button>`;
@@ -597,79 +618,68 @@
         const loxIp = document.getElementById('sys_loxIp').value;
         const loxPort = document.getElementById('sys_loxPort').value;
         const trans = document.getElementById('sys_trans').value;
+        const throttle = document.getElementById('sys_throttle').value; // UPDATE V1.7.3
         const debug = document.getElementById('sys_debug').checked;
         if(!loxIp) return alert("Loxone IP erforderlich");
         try {
-            await fetch('/api/setup/loxone', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ loxoneIp: loxIp, loxonePort: loxPort, debug: debug, transitionTime: trans }) });
+            await fetch('/api/setup/loxone', { 
+                method: 'POST', 
+                headers: {'Content-Type': 'application/json'}, 
+                body: JSON.stringify({ loxoneIp: loxIp, loxonePort: loxPort, debug: debug, transitionTime: trans, throttleTime: throttle }) 
+            });
             alert("Gespeichert!");
             loadSettings();
         } catch(e) { alert("Fehler beim Speichern"); }
     }
 
-	async function loadSettings() {
-	        try {
-	            console.log("Lade Einstellungen...");
-	            const res = await fetch('/api/settings');
-	            const s = await res.json();
-	            console.log("Daten empfangen:", s);
+    async function loadSettings() {
+        try {
+            console.log("Lade Einstellungen...");
+            const res = await fetch('/api/settings');
+            const s = await res.json();
+            console.log("Daten empfangen:", s);
 
-	            const table = document.getElementById('settingsTable');
+            const table = document.getElementById('settingsTable');
             
-	            // Toggle Switch HTML
-	            const toggleHtml = `<label class="switch"><input type="checkbox" id="sys_debug" ${s.debug ? 'checked' : ''}><span class="slider"></span></label>`;
+            // Toggle Switch HTML
+            const toggleHtml = `<label class="switch"><input type="checkbox" id="sys_debug" ${s.debug ? 'checked' : ''}><span class="slider"></span></label>`;
             
-	            // Transition Time Logic
-	            const tTime = (s.transitionTime !== undefined && s.transitionTime !== null) ? s.transitionTime : 400;
-	            const rangeHtml = `
-	                <div style="display:flex; align-items:center">
-	                    <input type="range" id="sys_trans" min="0" max="500" step="50" value="${tTime}" oninput="updateTransLabel(this.value)">
-	                    <span id="transVal" style="margin-left:10px">${tTime} ms</span>
-	                </div>`;
+            // Transition Time Logic
+            const tTime = (s.transitionTime !== undefined && s.transitionTime !== null) ? s.transitionTime : 400;
+            const rangeHtml = `
+                <div style="display:flex; align-items:center">
+                    <input type="range" id="sys_trans" min="0" max="500" step="50" value="${tTime}" oninput="updateTransLabel(this.value, 'transVal', 'ms')">
+                    <span id="transVal" style="margin-left:10px">${tTime} ms</span>
+                </div>`;
 
-	            // Version Fallback
-	            const ver = s.version || 'Unbekannt';
+            // UPDATE V1.7.3: Throttle Time Logic
+            const tThrottle = (s.throttleTime !== undefined && s.throttleTime !== null) ? s.throttleTime : 100;
+            const throttleHtml = `
+                <div style="display:flex; align-items:center">
+                    <input type="range" id="sys_throttle" min="0" max="1000" step="50" value="${tThrottle}" oninput="updateTransLabel(this.value, 'throttleVal', 'ms')">
+                    <span id="throttleVal" style="margin-left:10px">${tThrottle} ms</span>
+                </div>`;
 
-	            // HTML Zusammenbau (Lesbar, um Fehler zu vermeiden)
-	            table.innerHTML = `
-	                <tr>
-	                    <td>Version</td>
-	                    <td><span class="badge" style="background:var(--text-main); color:var(--bg)">v${ver}</span></td>
-	                </tr>
-	                <tr>
-	                    <td>Hue Bridge IP</td>
-	                    <td>${s.bridge_ip}</td>
-	                </tr>
-	                <tr>
-	                    <td>Loxone IP</td>
-	                    <td><input type="text" id="sys_loxIp" value="${s.loxone_ip || ''}"></td>
-	                </tr>
-	                <tr>
-	                    <td>Loxone UDP Port</td>
-	                    <td><input type="number" id="sys_loxPort" value="${s.loxone_port}"></td>
-	                </tr>
-	                <tr>
-	                    <td>Übergangszeit</td>
-	                    <td>${rangeHtml}</td>
-	                </tr>
-	                <tr>
-	                    <td>HTTP Port</td>
-	                    <td>${s.http_port}</td>
-	                </tr>
-	                <tr>
-	                    <td>Debug Modus</td>
-	                    <td>${toggleHtml}</td>
-	                </tr>
-	                <tr>
-	                    <td>App Key</td>
-	                    <td>${s.key_configured ? '✅ Konfiguriert' : '❌ Fehlt'}</td>
-	                </tr>
-	            `;
-	        } catch(e) { 
-	            console.error(e);
-	            // Hier sehen wir jetzt den echten Fehler im UI!
-	            document.getElementById('settingsTable').innerHTML = `<tr><td colspan="2" style="color:red">Fehler: ${e.message}</td></tr>`; 
-	        }
-	    }
+            // Version Fallback
+            const ver = s.version || 'Unbekannt';
+
+            // HTML Zusammenbau
+            table.innerHTML = `
+                <tr><td>Version</td><td><span class="badge" style="background:var(--text-main); color:var(--bg)">v${ver}</span></td></tr>
+                <tr><td>Hue Bridge IP</td><td>${s.bridge_ip}</td></tr>
+                <tr><td>Loxone IP</td><td><input type="text" id="sys_loxIp" value="${s.loxone_ip || ''}"></td></tr>
+                <tr><td>Loxone UDP Port</td><td><input type="number" id="sys_loxPort" value="${s.loxone_port}"></td></tr>
+                <tr><td>Übergangszeit (Fade)</td><td>${rangeHtml}</td></tr>
+                <tr><td>Befehls-Drosselung (Queue)</td><td>${throttleHtml}</td></tr>
+                <tr><td>HTTP Port</td><td>${s.http_port}</td></tr>
+                <tr><td>Debug Modus</td><td>${toggleHtml}</td></tr>
+                <tr><td>App Key</td><td>${s.key_configured ? '✅ Konfiguriert' : '❌ Fehlt'}</td></tr>
+            `;
+        } catch(e) { 
+            console.error(e);
+            document.getElementById('settingsTable').innerHTML = `<tr><td colspan="2" style="color:red">Fehler: ${e.message}</td></tr>`; 
+        }
+    }
 
     async function loadLogs() {
         try {

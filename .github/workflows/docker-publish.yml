@@ -52,3 +52,34 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+  create-release:
+    needs: build-and-push # Warten, bis Docker fertig ist (optional)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # WICHTIG: Erlaubt das Erstellen von Releases
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract Release Notes
+        id: extract_release_notes
+        # Dieser kleine Trick liest den NEUESTEN Eintrag aus deiner CHANGELOG.md
+        # Voraussetzung: Dein Changelog folgt dem Format "## [Version]"
+        run: |
+          # Wir suchen den Text zwischen dem ersten und zweiten Versions-Header
+          sed -n '/^## \[/p' CHANGELOG.md | sed -n '1p' > header.txt
+          VERSION=$(cat header.txt | sed -E 's/## \[(.*)\].*/\1/')
+          
+          # Extrahiere den Inhalt (alles zwischen dem aktuellen und dem nächsten ##)
+          sed -n "/^## \[$VERSION\]/,/^## \[/p" CHANGELOG.md | sed '1d;$d' > release_body.md
+          
+          echo "Release Notes extrahiert für Version $VERSION"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          body_path: release_body.md
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

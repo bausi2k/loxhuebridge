@@ -75,7 +75,7 @@
         .filter-btn.active { background: var(--text-main); color: var(--bg); font-weight: bold; border-color: var(--text-main); }
 
         .settings-table { width: 100%; border-collapse: collapse; }
-        .settings-table td { padding: 8px; border-bottom: 1px solid var(--border); }
+        .settings-table td { padding: 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
         .settings-table td:first-child { font-weight: bold; color: var(--text-muted); width: 40%; }
         
         .switch { position: relative; display: inline-block; width: 40px; height: 22px; vertical-align: middle; }
@@ -158,7 +158,7 @@
     </div>
 
     <div id="system-interface" class="tab-content">
-        <h2>Aktuelle Konfiguration</h2>
+        <h2>Einstellungen</h2>
         <div class="card">
             <table class="settings-table" id="settingsTable"><tr><td>Lade...</td><td></td></tr></table>
             <div style="text-align: right; margin-top: 15px;">
@@ -312,20 +312,14 @@
             const data = await res.json();
             if(data.length === 0) { container.innerHTML = 'Keine Daten.'; return; }
             
-            // SORT FUNCTION:
-            // 1. Connection Errors First
-            // 2. Low Battery First (Ascending)
-            // 3. Name Alphabetical
             const sortFn = (a, b) => {
                 const aErr = a.status !== 'connected';
                 const bErr = b.status !== 'connected';
                 if (aErr && !bErr) return -1;
                 if (!aErr && bErr) return 1;
-
                 const batA = (a.battery !== null && a.battery !== undefined) ? a.battery : 101;
                 const batB = (b.battery !== null && b.battery !== undefined) ? b.battery : 101;
                 if (batA !== batB) return batA - batB;
-
                 return a.name.localeCompare(b.name);
             };
 
@@ -393,21 +387,48 @@
         allSelected = false;
     }
 
-    function showDetails(uuid) {
+    // --- FIX V1.8.0: SHOW MORE DETAILS ---
+    function showDetails(uuid, loxoneName) {
         const target = targets.find(t => t.uuid === uuid);
+        const currentStatus = status[loxoneName] || {};
+        
         if(!target) return;
         let content = `<table class="details-table">`;
+        
+        // STATUS
+        content += `<tr><td colspan="2" style="border-bottom:none; padding-top:10px; color:var(--accent); font-weight:bold;">⚡ Aktueller Status</td></tr>`;
+        
+        const isOn = currentStatus.on === 1 || currentStatus.on === true;
+        content += `<tr><td>Zustand</td><td>${isOn ? '<span class="status-ok">AN</span>' : '<span style="color:#888">AUS</span>'}</td></tr>`;
+        
+        if (isOn) {
+            if (currentStatus.bri !== undefined) content += `<tr><td>Helligkeit</td><td>${Math.round(currentStatus.bri)} %</td></tr>`;
+            
+            // Zeige Kelvin wenn vorhanden (Weißmodus)
+            if (currentStatus.mirek) {
+                const kelvin = Math.round(1000000 / currentStatus.mirek);
+                content += `<tr><td>Temperatur</td><td>${kelvin} K</td></tr>`;
+            }
+            // Zeige Hex immer (Visuell)
+            if (currentStatus.hex) {
+                content += `<tr><td>Farbe</td><td><span class="color-dot" style="background-color:${currentStatus.hex}"></span> <span style="font-family:monospace">${currentStatus.hex}</span></td></tr>`;
+            }
+        }
+
+        // TECH DATEN
+        content += `<tr><td colspan="2" style="border-bottom:none; padding-top:20px; color:var(--text-muted); font-weight:bold;">📋 Technische Daten</td></tr>`;
         content += `<tr><td>Name</td><td>${target.name}</td></tr>`;
+        content += `<tr><td>Loxone ID</td><td>${loxoneName}</td></tr>`;
         content += `<tr><td>UUID</td><td style="font-size:0.8em; font-family:monospace">${target.uuid}</td></tr>`;
         content += `<tr><td>Typ</td><td>${target.type}</td></tr>`;
+        
         if(target.capabilities) {
             const c = target.capabilities;
-            content += `<tr><td>Farbe (RGB)</td><td>${c.supportsColor ? '✅ Ja' : '❌ Nein'}</td></tr>`;
-            content += `<tr><td>Farbtemp (WW)</td><td>${c.supportsCt ? '✅ Ja' : '❌ Nein'}</td></tr>`;
+            content += `<tr><td>RGB Support</td><td>${c.supportsColor ? '✅ Ja' : '❌ Nein'}</td></tr>`;
             if(c.supportsCt) {
                 const minK = Math.round(1000000 / c.max);
                 const maxK = Math.round(1000000 / c.min);
-                content += `<tr><td>Bereich</td><td>${minK}K - ${maxK}K</td></tr>`;
+                content += `<tr><td>Weiß-Spektrum</td><td>${minK}K - ${maxK}K</td></tr>`;
             }
         }
         content += `</table>`;
@@ -502,13 +523,19 @@
         try {
             const res = await fetch('/api/status');
             status = await res.json();
-            if(currentTab !== 'system' && currentTab !== 'diag') renderMappings();
+            // Live update of list order if light toggles
+            if(currentTab === 'light' || currentTab === 'sensor' || currentTab === 'button') {
+                renderMappings();
+            }
         } catch(e){}
     }
 
+    // --- RENDER MAPPINGS (GROUPED V1.8.1) ---
     function renderMappings() {
         const list = document.getElementById('mappingList');
         list.innerHTML = '';
+        
+        // Filter based on tab
         const filtered = mappings.filter(m => {
             if (currentTab === 'light') return m.hue_type === 'light' || m.hue_type === 'group';
             if (currentTab === 'sensor') return m.hue_type === 'sensor';
@@ -517,53 +544,90 @@
         });
 
         if (filtered.length === 0) { list.innerHTML = '<div class="empty-state">Leer</div>'; return; }
-        filtered.sort((a,b) => a.loxone_name.localeCompare(b.loxone_name));
+
+        // --- SPECIAL LOGIC FOR LIGHTS TAB: SPLIT ON / OFF ---
+        if (currentTab === 'light') {
+            const onList = [];
+            const offList = [];
+            
+            filtered.forEach(m => {
+                const st = status[m.loxone_name] || {};
+                const isOn = st.on === 1 || st.on === true;
+                if(isOn) onList.push(m);
+                else offList.push(m);
+            });
+            
+            // Sort alphabetical inside groups
+            onList.sort((a,b) => a.loxone_name.localeCompare(b.loxone_name));
+            offList.sort((a,b) => a.loxone_name.localeCompare(b.loxone_name));
+            
+            // Render ON group
+            if(onList.length > 0) {
+                const header = document.createElement('div');
+                header.style.cssText = `padding: 5px 10px; font-weight:bold; color:var(--accent); font-size:0.9em; margin-top:10px; border-bottom:1px solid var(--border); opacity:0.8;`;
+                header.innerText = `Eingeschaltet (${onList.length}) 💡`;
+                list.appendChild(header);
+                onList.forEach(m => list.appendChild(createMappingItem(m)));
+            }
+            
+            // Render OFF group
+            if(offList.length > 0) {
+                const header = document.createElement('div');
+                header.style.cssText = `padding: 5px 10px; font-weight:bold; color:var(--text-muted); font-size:0.9em; margin-top:20px; border-bottom:1px solid var(--border); opacity:0.8;`;
+                header.innerText = `Ausgeschaltet (${offList.length}) 🌑`;
+                list.appendChild(header);
+                offList.forEach(m => list.appendChild(createMappingItem(m)));
+            }
+            
+        } else {
+            // Normal behavior for sensors/buttons
+            filtered.sort((a,b) => a.loxone_name.localeCompare(b.loxone_name));
+            filtered.forEach(m => list.appendChild(createMappingItem(m)));
+        }
+    }
+    
+    function createMappingItem(m) {
+        const st = status[m.loxone_name] || {};
+        let badges = '';
         
-        filtered.forEach(m => {
-            const st = status[m.loxone_name] || {};
-            let badges = '';
-            
-            if (st.motion !== undefined) { const icon = st.motion ? '🏃' : '🧘'; const bg = 'var(--border)'; badges += `<span class="badge" style="background:${bg}; font-size: 1.2em;">${icon}</span>`; }
-            if (st.temp !== undefined) badges += `<span class="badge">${st.temp}°C</span>`;
-            if (st.lux !== undefined) badges += `<span class="badge">${st.lux} lx</span>`;
-            if (st.bat !== undefined) { let icon = '🔋'; let bg = 'var(--border)'; if (st.bat <= 20) { icon = '🚨'; bg = '#ffcdcd'; } badges += `<span class="badge" style="background:${bg}">${icon} ${st.bat}%</span>`; }
-            
-            if (st.on !== undefined && st.on !== null) {
-                 if(st.on || currentTab === 'light') {
-                    const bg = st.on ? '#e1ffe1' : 'var(--border)';
-                    badges += `<span class="badge" style="background:${bg}">${st.on ? 'AN' : 'AUS'}</span>`;
-                 }
-            }
-            
-            if (st.on) {
-                if (st.bri !== undefined) badges += `<span class="badge">${Math.round(st.bri)}%</span>`;
-                if (st.hex) badges += `<span class="color-dot" style="background-color:${st.hex}"></span>`;
-            }
-            if (st.rotary !== undefined) { 
-                // Fix V1.8.1: Text statt Zahl
-                const val = (st.rotary === 'cw' || st.rotary === 'ccw') ? st.rotary.toUpperCase() : st.rotary;
-                badges += `<span class="badge" style="background:#e1f5fe">🔄 ${val}</span>`; 
-            }
+        if (st.motion !== undefined) { const icon = st.motion ? '🏃' : '🧘'; const bg = 'var(--border)'; badges += `<span class="badge" style="background:${bg}; font-size: 1.2em;">${icon}</span>`; }
+        if (st.temp !== undefined) badges += `<span class="badge">${st.temp}°C</span>`;
+        if (st.lux !== undefined) badges += `<span class="badge">${st.lux} lx</span>`;
+        if (st.bat !== undefined) { let icon = '🔋'; let bg = 'var(--border)'; if (st.bat <= 20) { icon = '🚨'; bg = '#ffcdcd'; } badges += `<span class="badge" style="background:${bg}">${icon} ${st.bat}%</span>`; }
+        
+        if (st.on !== undefined && st.on !== null) {
+                if(st.on || currentTab === 'light') {
+                const bg = st.on ? '#e1ffe1' : 'var(--border)';
+                badges += `<span class="badge" style="background:${bg}">${st.on ? 'AN' : 'AUS'}</span>`;
+                }
+        }
+        
+        if (st.on) {
+            if (st.bri !== undefined) badges += `<span class="badge">${Math.round(st.bri)}%</span>`;
+            if (st.hex) badges += `<span class="color-dot" style="background-color:${st.hex}"></span>`;
+        }
+        if (st.rotary !== undefined) { 
+            const val = (st.rotary === 'cw' || st.rotary === 'ccw') ? st.rotary.toUpperCase() : st.rotary;
+            badges += `<span class="badge" style="background:#e1f5fe">🔄 ${val}</span>`; 
+        }
 
-            let infoBtn = '';
-            if(m.hue_type === 'light') infoBtn = `<button class="info-btn" onclick="showDetails('${m.hue_uuid}')">ℹ️</button>`;
+        let infoBtn = '';
+        if(m.hue_type === 'light') infoBtn = `<button class="info-btn" onclick="showDetails('${m.hue_uuid}', '${m.loxone_name}')">ℹ️</button>`;
 
-            // NEU: SYNC CHECKBOX
-            let syncControl = '';
-            if (currentTab === 'light') {
-                const isChecked = m.sync_lox === true ? 'checked' : '';
-                const activeClass = m.sync_lox === true ? 'sync-active' : '';
-                syncControl = `<label class="sync-check ${activeClass}" title="Status aktiv an Loxone senden"><input type="checkbox" ${isChecked} onchange="toggleSync('${m.loxone_name}', this.checked)">Sync</label>`;
-            }
+        let syncControl = '';
+        if (currentTab === 'light') {
+            const isChecked = m.sync_lox === true ? 'checked' : '';
+            const activeClass = m.sync_lox === true ? 'sync-active' : '';
+            syncControl = `<label class="sync-check ${activeClass}" title="Status aktiv an Loxone senden"><input type="checkbox" ${isChecked} onchange="toggleSync('${m.loxone_name}', this.checked)">Sync</label>`;
+        }
 
-            const div = document.createElement('div');
-            div.className = `mapping-item type-${m.hue_type}`;
-            div.innerHTML = `
-                <div><div class="mapping-lox">${m.loxone_name}</div><div class="mapping-hue">${m.hue_name} ${infoBtn}</div></div>
-                <div style="display:flex; align-items:center;">${syncControl}<div class="status-badges">${badges}</div><button class="del-btn" onclick="deleteMapping('${m.loxone_name}')">✖</button></div>
-            `;
-            list.appendChild(div);
-        });
+        const div = document.createElement('div');
+        div.className = `mapping-item type-${m.hue_type}`;
+        div.innerHTML = `
+            <div><div class="mapping-lox">${m.loxone_name}</div><div class="mapping-hue">${m.hue_name} ${infoBtn}</div></div>
+            <div style="display:flex; align-items:center;">${syncControl}<div class="status-badges">${badges}</div><button class="del-btn" onclick="deleteMapping('${m.loxone_name}')">✖</button></div>
+        `;
+        return div;
     }
 
     async function loadDetected() {
@@ -618,14 +682,27 @@
         const loxIp = document.getElementById('sys_loxIp').value;
         const loxPort = document.getElementById('sys_loxPort').value;
         const trans = document.getElementById('sys_trans').value;
-        const throttle = document.getElementById('sys_throttle').value; // UPDATE V1.7.3
+        const throttle = document.getElementById('sys_throttle').value;
         const debug = document.getElementById('sys_debug').checked;
+        
+        // MQTT
+        const mqttEnabled = document.getElementById('sys_mqttEnabled').checked; // NEU
+        const mqttBroker = document.getElementById('sys_mqttBroker').value;
+        const mqttPort = document.getElementById('sys_mqttPort').value;
+        const mqttUser = document.getElementById('sys_mqttUser').value;
+        const mqttPass = document.getElementById('sys_mqttPass').value;
+        const mqttPrefix = document.getElementById('sys_mqttPrefix').value;
+
         if(!loxIp) return alert("Loxone IP erforderlich");
         try {
             await fetch('/api/setup/loxone', { 
                 method: 'POST', 
                 headers: {'Content-Type': 'application/json'}, 
-                body: JSON.stringify({ loxoneIp: loxIp, loxonePort: loxPort, debug: debug, transitionTime: trans, throttleTime: throttle }) 
+                body: JSON.stringify({ 
+                    loxoneIp: loxIp, loxonePort: loxPort, debug: debug, 
+                    transitionTime: trans, throttleTime: throttle,
+                    mqttEnabled, mqttBroker, mqttPort, mqttUser, mqttPass, mqttPrefix
+                }) 
             });
             alert("Gespeichert!");
             loadSettings();
@@ -641,10 +718,8 @@
 
             const table = document.getElementById('settingsTable');
             
-            // Toggle Switch HTML
             const toggleHtml = `<label class="switch"><input type="checkbox" id="sys_debug" ${s.debug ? 'checked' : ''}><span class="slider"></span></label>`;
             
-            // Transition Time Logic
             const tTime = (s.transitionTime !== undefined && s.transitionTime !== null) ? s.transitionTime : 400;
             const rangeHtml = `
                 <div style="display:flex; align-items:center">
@@ -652,7 +727,6 @@
                     <span id="transVal" style="margin-left:10px">${tTime} ms</span>
                 </div>`;
 
-            // UPDATE V1.7.3: Throttle Time Logic
             const tThrottle = (s.throttleTime !== undefined && s.throttleTime !== null) ? s.throttleTime : 100;
             const throttleHtml = `
                 <div style="display:flex; align-items:center">
@@ -660,20 +734,33 @@
                     <span id="throttleVal" style="margin-left:10px">${tThrottle} ms</span>
                 </div>`;
 
-            // Version Fallback
             const ver = s.version || 'Unbekannt';
+            
+            const mqttStatus = s.mqttConnected ? '<span class="status-ok">Verbunden</span>' : '<span style="color:#ccc">Inaktiv</span>';
+            const mqttToggle = `<label class="switch"><input type="checkbox" id="sys_mqttEnabled" ${s.mqttEnabled ? 'checked' : ''}><span class="slider"></span></label>`;
 
-            // HTML Zusammenbau
             table.innerHTML = `
+                <tr><td colspan="2" style="background:#f0f0f0; font-size:0.9em; padding:5px 8px; font-weight:bold;">ALLGEMEIN</td></tr>
                 <tr><td>Version</td><td><span class="badge" style="background:var(--text-main); color:var(--bg)">v${ver}</span></td></tr>
-                <tr><td>Hue Bridge IP</td><td>${s.bridge_ip}</td></tr>
-                <tr><td>Loxone IP</td><td><input type="text" id="sys_loxIp" value="${s.loxone_ip || ''}"></td></tr>
-                <tr><td>Loxone UDP Port</td><td><input type="number" id="sys_loxPort" value="${s.loxone_port}"></td></tr>
-                <tr><td>Übergangszeit (Fade)</td><td>${rangeHtml}</td></tr>
-                <tr><td>Befehls-Drosselung (Queue)</td><td>${throttleHtml}</td></tr>
+                <tr><td>Bridge IP</td><td>${s.bridge_ip}</td></tr>
+                <tr><td>App Key</td><td>${s.key_configured ? '✅ Konfiguriert' : '❌ Fehlt'}</td></tr>
                 <tr><td>HTTP Port</td><td>${s.http_port}</td></tr>
                 <tr><td>Debug Modus</td><td>${toggleHtml}</td></tr>
-                <tr><td>App Key</td><td>${s.key_configured ? '✅ Konfiguriert' : '❌ Fehlt'}</td></tr>
+                
+                <tr><td colspan="2" style="background:#f0f0f0; font-size:0.9em; padding:5px 8px; font-weight:bold;">LOXONE</td></tr>
+                <tr><td>Loxone IP</td><td><input type="text" id="sys_loxIp" value="${s.loxone_ip || ''}"></td></tr>
+                <tr><td>UDP Port</td><td><input type="number" id="sys_loxPort" value="${s.loxone_port}"></td></tr>
+                <tr><td>Fade Zeit</td><td>${rangeHtml}</td></tr>
+                <tr><td>Throttle</td><td>${throttleHtml}</td></tr>
+
+                <tr><td colspan="2" style="background:#f0f0f0; font-size:0.9em; padding:5px 8px; font-weight:bold;">MQTT (Optional)</td></tr>
+                <tr><td>Aktivieren</td><td>${mqttToggle}</td></tr>
+                <tr><td>Status</td><td>${mqttStatus}</td></tr>
+                <tr><td>Broker IP</td><td><input type="text" id="sys_mqttBroker" placeholder="z.B. 192.168.1.50" value="${s.mqttBroker || ''}"></td></tr>
+                <tr><td>Port</td><td><input type="number" id="sys_mqttPort" value="${s.mqttPort || 1883}"></td></tr>
+                <tr><td>User</td><td><input type="text" id="sys_mqttUser" value="${s.mqttUser || ''}"></td></tr>
+                <tr><td>Passwort</td><td><input type="password" id="sys_mqttPass" value="${s.mqttPass || ''}"></td></tr>
+                <tr><td>Prefix</td><td><input type="text" id="sys_mqttPrefix" value="${s.mqttPrefix || 'loxhue'}"></td></tr>
             `;
         } catch(e) { 
             console.error(e);
@@ -685,7 +772,7 @@
         try {
             const res = await fetch('/api/logs');
             const logs = await res.json();
-            cachedLogs = logs; // Cache for filtering
+            cachedLogs = logs; 
             renderLogs();
         } catch(e) {}
     }

@@ -5,6 +5,7 @@ const https = require('https');
 const path = require('path');
 const dgram = require('dgram');
 const os = require('os');
+const mqtt = require('mqtt');
 
 // --- VERSION SAFETY CHECK ---
 let pjson = { version: "unknown" };
@@ -36,11 +37,50 @@ let config = {
     loxonePort: parseInt(process.env.LOXONE_UDP_PORT || "7000"),
     debug: process.env.DEBUG === 'true',
     transitionTime: 400,
-    throttleTime: 100 // Standard: 100ms zwischen Befehlen
+    throttleTime: 100,
+    mqttEnabled: false, // Default: Aus
+    mqttBroker: null,
+    mqttPort: 1883,
+    mqttUser: "",
+    mqttPass: "",
+    mqttPrefix: "loxhue"
 };
 
 let isConfigured = false;
 const logBuffer = []; const MAX_LOGS = 100;
+
+// --- MQTT CLIENT ---
+let mqttClient = null;
+
+function connectToMqtt() {
+    // Alte Verbindung trennen, falls vorhanden
+    if (mqttClient) { 
+        try { mqttClient.end(); } catch(e){} 
+        mqttClient = null;
+    }
+    
+    // Check: Ist MQTT überhaupt aktiviert & Broker konfiguriert?
+    if (!config.mqttEnabled || !config.mqttBroker) return;
+
+    const brokerUrl = `mqtt://${config.mqttBroker}:${config.mqttPort || 1883}`;
+    log.info(`Verbinde zu MQTT Broker: ${brokerUrl} ...`, 'SYSTEM');
+    
+    const options = {
+        clientId: 'loxhue_' + Math.random().toString(16).substr(2, 8),
+        username: config.mqttUser,
+        password: config.mqttPass
+    };
+
+    mqttClient = mqtt.connect(brokerUrl, options);
+
+    mqttClient.on('connect', () => {
+        log.success("MQTT Verbunden!", 'SYSTEM');
+    });
+
+    mqttClient.on('error', (err) => {
+        log.error(`MQTT Fehler: ${err.message}`, 'SYSTEM');
+    });
+}
 
 // --- LOGGING ---
 const getTime = () => {
@@ -89,7 +129,14 @@ function loadConfig() {
             config = { ...config, ...d };
             if (config.transitionTime === undefined) config.transitionTime = 400;
             if (config.throttleTime === undefined) config.throttleTime = 100;
-            if (config.bridgeIp && config.appKey) { isConfigured=true; return; }
+            if (config.mqttPort === undefined) config.mqttPort = 1883;
+            if (config.mqttPrefix === undefined) config.mqttPrefix = "loxhue";
+            
+            if (config.bridgeIp && config.appKey) { 
+                isConfigured=true; 
+                connectToMqtt();
+                return; 
+            }
         }
     } catch (e) {}
     if (config.bridgeIp && config.appKey) isConfigured=true;
@@ -153,13 +200,11 @@ function rgbToMirekFallback(r, g, b, minM, maxM) {
 }
 function hueLightToLux(v) { return Math.round(Math.pow(10, (v - 1) / 10000)); }
 
-// --- GLOBAL RATE LIMITER QUEUE (Configurable V1.7.3) ---
+// --- GLOBAL RATE LIMITER QUEUE ---
 const REQUEST_QUEUES = {
-    light: { items: [], isProcessing: false, delayMs: 100 },
+    light: { items: [], isProcessing: false, delayMs: 100 }, 
     grouped_light: { items: [], isProcessing: false, delayMs: 1100 }
 };
-
-// Queue Eigenschaften bei Config-Start aktualisieren
 if(config.throttleTime !== undefined) REQUEST_QUEUES.light.delayMs = config.throttleTime;
 
 async function processQueue(type) {
@@ -266,8 +311,9 @@ async function executeCommand(entry, value, forcedTransition = null) {
 }
 
 
-// --- UDP SEND ---
+// --- UDP SEND & MQTT PUBLISH ---
 const udpClient = dgram.createSocket('udp4');
+
 function sendToLoxone(baseName, suffix, value, category = 'SYSTEM') {
     if (!config.loxoneIp) return;
     const msg = `hue.${baseName}.${suffix} ${value}`;
@@ -275,6 +321,14 @@ function sendToLoxone(baseName, suffix, value, category = 'SYSTEM') {
         if(err) log.error(`UDP Err: ${err}`, category);
         else if(config.debug) log.debug(`UDP OUT: ${msg}`, category);
     });
+}
+
+function publishMqtt(baseName, suffix, value, entry) {
+    if(!mqttClient || !mqttClient.connected) return;
+    const typeMap = { 'light': 'light', 'group': 'group', 'sensor': 'sensor', 'button': 'button' };
+    const type = typeMap[entry.hue_type] || 'device';
+    const topic = `${config.mqttPrefix}/${type}/${baseName}/${suffix}`;
+    mqttClient.publish(topic, String(value), { retain: true });
 }
 
 // --- LOGIK ---
@@ -300,6 +354,8 @@ async function buildDeviceMap() {
 function updateStatus(loxName, key, val) {
     if (!statusCache[loxName]) statusCache[loxName] = {};
     const isEvent = (key === 'button' || key === 'rotary');
+    
+    // Cache Check (nur für States)
     if (!isEvent && statusCache[loxName][key] === val) return; 
     statusCache[loxName][key] = val;
 
@@ -313,11 +369,16 @@ function updateStatus(loxName, key, val) {
     else if (entry.hue_type === 'button') { shouldSend = true; category = 'BUTTON'; }
     else if (entry.sync_lox === true) { shouldSend = true; category = 'LIGHT'; } 
 
+    // UDP an Loxone
     if (shouldSend) {
         sendToLoxone(loxName, key, val, category);
     }
+
+    // MQTT immer senden (wenn verbunden)
+    publishMqtt(loxName, key, val, entry);
 }
 
+// --- SYNC INITIAL STATES (FIXED V1.8.0) ---
 async function syncInitialStates() {
     if (!isConfigured) return;
     try {
@@ -332,8 +393,15 @@ async function syncInitialStates() {
                 const name = entry.loxone_name;
                 if(l.on) updateStatus(name, 'on', l.on.on ? 1 : 0);
                 if(l.dimming) updateStatus(name, 'bri', l.dimming.brightness);
-                if(l.color && l.color.xy) updateStatus(name, 'hex', xyToHex(l.color.xy.x, l.color.xy.y, 1.0));
-                else if (l.color_temperature && l.color_temperature.mirek) updateStatus(name, 'hex', mirekToHex(l.color_temperature.mirek));
+                
+                // FIX: Beide Werte laden, damit das UI entscheiden kann
+                if(l.color_temperature && l.color_temperature.mirek) {
+                    updateStatus(name, 'mirek', l.color_temperature.mirek);
+                    updateStatus(name, 'hex', mirekToHex(l.color_temperature.mirek));
+                }
+                if(l.color && l.color.xy) {
+                    updateStatus(name, 'hex', xyToHex(l.color.xy.x, l.color.xy.y, 1.0));
+                }
             }
         });
         log.info("Initialer Status geladen.", 'SYSTEM');
@@ -381,20 +449,24 @@ function processHueEvents(events) {
                         let rotaryData = d.relative_rotary.rotary_report || d.relative_rotary.last_event || d.relative_rotary;
                         if (rotaryData && rotaryData.rotation) {
                             const dir = rotaryData.rotation.direction === 'clock_wise' ? 'cw' : 'ccw';
-                            sendToLoxone(lox, 'rotary', dir, logCat);
+                            updateStatus(lox, 'rotary', dir);
                             log.debug(`Event: ${lox} Dial=${dir}`, logCat);
                         }
                     }
 
                     if (d.color && d.color.xy) updateStatus(lox, 'hex', xyToHex(d.color.xy.x, d.color.xy.y));
-                    if (d.color_temperature && d.color_temperature.mirek) updateStatus(lox, 'hex', mirekToHex(d.color_temperature.mirek));
+                    
+                    if (d.color_temperature && d.color_temperature.mirek) {
+                        updateStatus(lox, 'hex', mirekToHex(d.color_temperature.mirek));
+                        updateStatus(lox, 'mirek', d.color_temperature.mirek);
+                    }
                 }
             });
         }
     });
 }
 
-// --- EVENT STREAM & WATCHDOG (FIX V1.7.3) ---
+// --- EVENT STREAM & WATCHDOG ---
 let eventStreamActive = false;
 let eventStreamRequest = null;
 let watchdogInterval = null;
@@ -461,11 +533,21 @@ app.post('/api/setup/loxone', (req, res) => {
     config.loxonePort = parseInt(req.body.loxonePort); 
     config.debug = !!req.body.debug; 
     if(req.body.transitionTime!==undefined) config.transitionTime=parseInt(req.body.transitionTime); 
-    if(req.body.throttleTime!==undefined) {
-        config.throttleTime=parseInt(req.body.throttleTime);
-        REQUEST_QUEUES.light.delayMs = config.throttleTime; // Live Update
-    }
-    saveConfigToFile(); isConfigured=true; startEventStream(); res.json({success:true}); 
+    if(req.body.throttleTime!==undefined) { config.throttleTime=parseInt(req.body.throttleTime); REQUEST_QUEUES.light.delayMs = config.throttleTime; }
+    
+    // MQTT Settings
+    if(req.body.mqttEnabled !== undefined) config.mqttEnabled = !!req.body.mqttEnabled; // NEU
+    if(req.body.mqttBroker !== undefined) config.mqttBroker = req.body.mqttBroker;
+    if(req.body.mqttPort !== undefined) config.mqttPort = parseInt(req.body.mqttPort);
+    if(req.body.mqttUser !== undefined) config.mqttUser = req.body.mqttUser;
+    if(req.body.mqttPass !== undefined) config.mqttPass = req.body.mqttPass;
+    if(req.body.mqttPrefix !== undefined) config.mqttPrefix = req.body.mqttPrefix;
+
+    saveConfigToFile(); 
+    isConfigured=true; 
+    connectToMqtt(); // Restart MQTT mit Check
+    startEventStream(); 
+    res.json({success:true}); 
 });
 app.get('/api/download/outputs', (req, res) => { const filterNames = req.query.names ? req.query.names.split(',') : null; let lights = mapping.filter(m => m.hue_type === 'light' || m.hue_type === 'group'); if (filterNames) lights = lights.filter(m => filterNames.includes(m.loxone_name)); let xml = `<?xml version="1.0" encoding="utf-8"?>\n<VirtualOut Title="LoxHueBridge Lights" Address="http://${getServerIp()}:${HTTP_PORT}" CmdInit="" CloseAfterSend="true" CmdSep=";">\n\t<Info templateType="3" minVersion="16011106"/>\n`; lights.forEach(l => { const t = l.loxone_name.charAt(0).toUpperCase() + l.loxone_name.slice(1) + " (Hue)"; xml += `\t<VirtualOutCmd Title="${t}" Comment="${l.hue_name}" CmdOn="/${l.loxone_name}/<v>" Analog="true"/>\n`; }); xml += `</VirtualOut>`; res.set('Content-Type', 'text/xml'); res.set('Content-Disposition', `attachment; filename="lox_outputs.xml"`); res.send(xml); });
 app.get('/api/download/inputs', (req, res) => { const filterNames = req.query.names ? req.query.names.split(',') : null; let sensors = mapping.filter(m => m.hue_type === 'sensor' || m.hue_type === 'button'); if (filterNames) sensors = sensors.filter(m => filterNames.includes(m.loxone_name)); let xml = `<?xml version="1.0" encoding="utf-8"?>\n<VirtualInUdp Title="LoxHueBridge Sensors" Port="${config.loxonePort}">\n\t<Info templateType="1" minVersion="16011106"/>\n`; sensors.forEach(s => { const n = s.loxone_name; const t = n.charAt(0).toUpperCase() + n.slice(1); if (s.hue_type === 'sensor') { xml += `\t<VirtualInUdpCmd Title="${t} Motion" Check="hue.${n}.motion \\v" Analog="true" DefVal="0" MinVal="0" MaxVal="1" Unit="&lt;v&gt;"/>\n`; xml += `\t<VirtualInUdpCmd Title="${t} Lux" Check="hue.${n}.lux \\v" Analog="true" DefVal="0" MinVal="0" MaxVal="65000" Unit="&lt;v&gt; lx"/>\n`; xml += `\t<VirtualInUdpCmd Title="${t} Temp" Check="hue.${n}.temp \\v" Analog="true" DefVal="0" MinVal="-50" MaxVal="100" Unit="&lt;v.1&gt; °C"/>\n`; xml += `\t<VirtualInUdpCmd Title="${t} Battery" Check="hue.${n}.bat \\v" Analog="true" DefVal="0" MinVal="0" MaxVal="100" Unit="&lt;v&gt; %"/>\n`; } else { xml += `\t<VirtualInUdpCmd Title="${t} Event" Check="hue.${n}.button \\v" Analog="false"/>\n`; if(s.hue_name.includes("Dreh") || s.hue_name.includes("Rotary") || s.hue_name.includes("Dial")) { xml += `\t<VirtualInUdpCmd Title="${t} Rotary CW" Check="hue.${n}.rotary cw" Analog="false"/>\n`; xml += `\t<VirtualInUdpCmd Title="${t} Rotary CCW" Check="hue.${n}.rotary ccw" Analog="false"/>\n`; } } }); xml += `</VirtualInUdp>`; res.set('Content-Type', 'text/xml'); res.set('Content-Disposition', `attachment; filename="lox_inputs.xml"`); res.send(xml); });
@@ -483,7 +565,14 @@ app.get('/api/settings', (req, res) => res.json({
     debug: config.debug, 
     key_configured: isConfigured, 
     transitionTime: config.transitionTime, 
-    throttleTime: config.throttleTime, // Neue Eigenschaft
+    throttleTime: config.throttleTime,
+    // MQTT
+    mqttEnabled: config.mqttEnabled, // NEU
+    mqttBroker: config.mqttBroker,
+    mqttPort: config.mqttPort,
+    mqttUser: config.mqttUser,
+    mqttPrefix: config.mqttPrefix,
+    mqttConnected: mqttClient && mqttClient.connected,
     version: pjson.version 
 }));
 app.post('/api/settings/debug', (req, res) => { config.debug = !!req.body.active; saveConfigToFile(); res.json({success:true}); });

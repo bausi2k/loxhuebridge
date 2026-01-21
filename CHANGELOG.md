@@ -6,6 +6,23 @@ Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 und dieses Projekt hält sich an [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 [![Buy Me A Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://www.buymeacoffee.com/bausi2k)
 
+## [1.8.0] - 2026-01-21
+
+### 🚀 Features
+- **MQTT Support:** Die Bridge kann nun Statusänderungen (Licht, Sensoren, Taster) parallel an einen MQTT Broker senden.
+    - Konfiguration im Tab "System" (Broker, Port, User, Passwort).
+    - Topic-Struktur: `loxhue/<typ>/<name>/<attribut>` (z.B. `loxhue/light/kueche/bri`).
+    - Ideal für die Integration in Home Assistant, ioBroker oder Node-RED.
+- **Erweitertes Dashboard:**
+    - **Licht-Gruppierung:** Im Tab "Lichter" werden Lampen nun übersichtlich in "Eingeschaltet" 💡 und "Ausgeschaltet" 🌑 unterteilt.
+    - **Live-Info Modal:** Das Info-Icon (ℹ️) zeigt nun Live-Werte der Lampe an (Helligkeit %, Kelvin, Hex-Code), was das Debuggen massiv erleichtert.
+
+### 🛠 Verbesserungen
+- **Stabilität:** Beinhaltet alle Fixes aus v1.7.x (Watchdog gegen Verbindungsabbrüche, Queue-Drosselung).
+- **UI:** Neuer Toggle-Switch im System-Tab, um MQTT global an- oder abzuschalten.
+
+---
+
 ## [1.7.3] - 2026-01-20
 
 ### 🛡️ Stabilität

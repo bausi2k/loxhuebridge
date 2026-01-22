@@ -1,8 +1,3 @@
-### `README.md` (Update für V1.8.0)
-
-Du kannst den gesamten Inhalt einfach ersetzen (oder die neuen Teile reinkopieren).
-
-```markdown
 # loxHueBridge 🇦🇹
 
 [![Buy Me A Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://www.buymeacoffee.com/bausi2k)

@@ -6,6 +6,28 @@ Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 und dieses Projekt hält sich an [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 [![Buy Me A Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://www.buymeacoffee.com/bausi2k)
 
+
+
+## [2.0.0] - 2026-01-29
+### 💥 Major Changes
+- **Core Engine Upgrade:** Umstellung auf **Node.js 24 LTS**.
+- **Native SQLite Integration:** Logs werden nun persistent in einer lokalen SQLite-Datenbank (`data/logs.db`) gespeichert statt nur im Arbeitsspeicher.
+    - *Vorteil:* Logs überleben Neustarts und ermöglichen eine Historie von Millionen Einträgen ohne RAM-Verbrauch.
+    - *Performance:* Nutzung des neuen `node:sqlite` Moduls für maximale Geschwindigkeit ohne externe C++ Abhängigkeiten.
+- **UI Overhaul:** Komplettes Redesign des Dashboards.
+    - Auslagerung der Styles in `style.css`.
+    - Neue **Filter-Leiste** für Logs (Kategorien + Volltextsuche).
+    - Verbesserte **Sensor-Gruppierung** (Kontakte, Bewegung, Sonstige).
+    - **Backup & Restore:** Vollständige Sicherung und Wiederherstellung der Konfiguration direkt über das Web-Interface.
+
+### 🐛 Bugfixes
+- **Grouped Lights:** Fix für fehlenden Status von Lichtgruppen (Zimmer/Zonen) nach Neustart. Der Endpunkt `grouped_light` wird nun beim Start synchronisiert.
+- **Zero-Value Display:** Korrektur eines Fehlers im Frontend, bei dem Werte von `0` (z.B. Licht Aus, Keine Bewegung) fälschlicherweise als "leer" interpretiert und ausgeblendet wurden.
+- **Log Formatting:** Fix für Zeilenumbrüche in der Log-Ansicht für bessere Lesbarkeit.
+
+---
+---
+
 ## [1.8.0] - 2026-01-21
 
 ### 🚀 Features

@@ -147,7 +147,7 @@
         debugLog("Init...");
         await loadTargets();
         await loadMappings();
-        loadDetected(); // HIER WIRD SIE AUFGERUFEN
+        loadDetected(); 
         loadStatus();
         
         setInterval(loadDetected, 3000);
@@ -185,7 +185,7 @@
         }
     }
 
-    // --- DETECTED COMMANDS (War vorher verschwunden!) ---
+    // --- DETECTED COMMANDS ---
     async function loadDetected() {
         try {
             const res = await fetch('/api/detected');
@@ -217,9 +217,7 @@
                 };
                 list.appendChild(div);
             });
-        } catch(e) {
-            // debugLog("LoadDetected Fehler: " + e.message);
-        }
+        } catch(e) {}
     }
 
     // --- LOGS & FILTER ---
@@ -269,7 +267,6 @@
             if(l.level === 'ERROR') lvlColor = '#e06c75';
             if(l.level === 'DEBUG') lvlColor = '#c678dd';
             
-            // Einzeiliges HTML für kompakte Darstellung
             return `<div class="log-entry" style="border-bottom:1px solid #333; margin-bottom:2px; font-family:monospace; font-size:0.85rem;">` +
                 `<span class="log-time" style="color:#888; margin-right:10px;">${l.time}</span>` +
                 `<span class="log-cat" style="background:#444; color:#fff; padding:1px 4px; border-radius:3px; margin-right:5px; font-size:0.8em">${cat}</span>` +
@@ -330,7 +327,6 @@
     function createMappingItem(m) {
         const st = status[m.loxone_name] || {};
         let badges = '';
-        
         const has = (v) => v !== undefined && v !== null;
 
         if (has(st.motion)) badges += `<span class="badge" style="background:var(--border)">${st.motion?'🏃':'🧘'}</span>`;
@@ -404,10 +400,14 @@
         ['sys_loxIp', 'sys_loxPort', 'sys_mqttBroker', 'sys_mqttPort', 'sys_mqttUser', 'sys_mqttPass', 'sys_mqttPrefix'].forEach(id => d[id.replace('sys_','')] = document.getElementById(id).value);
         d.debug = document.getElementById('sys_debug').checked;
         d.mqttEnabled = document.getElementById('sys_mqttEnabled').checked;
+        // NEU: Disable Log Disk
+        d.disableLogDisk = document.getElementById('sys_disableLogDisk').checked;
+
         try {
             await fetch('/api/setup/loxone', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
                 loxoneIp: d.loxIp, loxonePort: d.loxPort, debug: d.debug,
-                mqttEnabled: d.mqttEnabled, mqttBroker: d.mqttBroker, mqttPort: d.mqttPort, mqttUser: d.mqttUser, mqttPass: d.mqttPass, mqttPrefix: d.mqttPrefix
+                mqttEnabled: d.mqttEnabled, mqttBroker: d.mqttBroker, mqttPort: d.mqttPort, mqttUser: d.mqttUser, mqttPass: d.mqttPass, mqttPrefix: d.mqttPrefix,
+                disableLogDisk: d.disableLogDisk
             })});
             alert("Gespeichert!");
         } catch(e) { alert("Fehler!"); }
@@ -418,12 +418,21 @@
             const s = await (await fetch('/api/settings')).json();
             const table = document.getElementById('settingsTable');
             const v = (val) => val || '';
+            // NEU: SD Card Mode Checkbox
             table.innerHTML = `
                 <tr><td colspan="2" style="background:#eee;font-weight:bold">Allgemein</td></tr>
                 <tr><td>Version</td><td><span class="badge" style="background:#333;color:#fff">${s.version}</span></td></tr>
                 <tr><td>Loxone IP</td><td><input id="sys_loxIp" value="${v(s.loxone_ip)}"></td></tr>
                 <tr><td>UDP Port</td><td><input type="number" id="sys_loxPort" value="${v(s.loxone_port)}"></td></tr>
                 <tr><td>Debug Modus</td><td><input type="checkbox" id="sys_debug" ${s.debug?'checked':''}></td></tr>
+                <tr>
+                    <td>SD-Card Mode</td>
+                    <td>
+                        <input type="checkbox" id="sys_disableLogDisk" ${s.disableLogDisk?'checked':''}>
+                        <div style="font-size:0.7em; color:var(--text-muted); margin-top:2px">Deaktiviert Schreibzugriffe auf logs.db (schont SD-Karten). Logs gehen bei Neustart verloren.</div>
+                    </td>
+                </tr>
+
                 <tr><td colspan="2" style="background:#eee;font-weight:bold">MQTT</td></tr>
                 <tr><td>Aktivieren</td><td><input type="checkbox" id="sys_mqttEnabled" ${s.mqttEnabled?'checked':''}></td></tr>
                 <tr><td>Broker IP</td><td><input id="sys_mqttBroker" value="${v(s.mqttBroker)}"></td></tr>

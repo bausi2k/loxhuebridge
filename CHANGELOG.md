@@ -6,7 +6,14 @@ Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 und dieses Projekt hält sich an [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 [![Buy Me A Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://www.buymeacoffee.com/bausi2k)
 
+## [2.1.0] - 2026-01-29
+### 🌟 New Features
+- **SD-Card Mode:** Neue Option in den Systemeinstellungen, um das Schreiben von Logs auf die Festplatte zu deaktivieren (schont SD-Karten auf Raspberry Pi). Logs werden dann nur im RAM gehalten.
+- **Robustheit:** Neuer Crash-Monitor fängt kritische Fehler ab und verhindert, dass der Server bei kleineren Problemen komplett abstürzt.
 
+### 🐛 Bugfixes
+- **MQTT:** Fix für Abstürze bei leeren Benutzer/Passwort-Feldern und Endlos-Schleifen bei Authentifizierungsfehlern.
+- **Datenbank:** Server startet nun auch, wenn die `logs.db` gesperrt oder beschädigt ist (Fallback auf RAM-Modus).
 
 ## [2.0.0] - 2026-01-29
 ### 💥 Major Changes

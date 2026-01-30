@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Setup - loxHueBridge</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root { --bg: #f4f6f8; --card: #fff; --text: #1c1c1e; --accent: #85c440; --border: #e1e4e8; }
+        @media (prefers-color-scheme: dark) { :root { --bg: #000; --card: #1c1c1e; --text: #f2f2f7; --border: #38383a; } }
+        body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .setup-card { background: var(--card); padding: 40px; border-radius: 16px; border: 1px solid var(--border); width: 100%; max-width: 400px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+        h1 { color: var(--accent); margin-bottom: 10px; }
+        p { color: #888; margin-bottom: 30px; line-height: 1.5; }
+        input[type="text"], input[type="number"] { width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 16px; background: transparent; color: var(--text); box-sizing: border-box; margin-bottom: 15px; text-align: center; }
+        .checkbox-container { display: flex; align-items: center; justify-content: center; margin-bottom: 20px; font-size: 0.9rem; color: var(--text); }
+        input[type="checkbox"] { transform: scale(1.5); margin-right: 10px; accent-color: var(--accent); }
+        button { width: 100%; padding: 14px; border: none; border-radius: 8px; background: var(--accent); color: white; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        button:hover { filter: brightness(1.1); }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        .step { display: none; }
+        .step.active { display: block; }
+        .spinner { border: 3px solid rgba(0,0,0,0.1); border-left-color: var(--accent); border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite; display: inline-block; vertical-align: middle; margin-right: 10px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .error { color: #ff3b30; margin-top: 15px; font-size: 0.9rem; }
+        label { display: block; text-align: left; font-size: 0.8rem; margin-bottom: 5px; font-weight: bold; color: var(--text); }
+    </style>
+</head>
+<body>
+
+<div class="setup-card">
+    <h1>loxHueBridge</h1>
+    <div id="step1" class="step active">
+        <p>Willkommen! Wir suchen deine Philips Hue Bridge im Netzwerk...</p>
+        <button onclick="discoverBridge()">🔍 Suche starten</button>
+        <div style="margin-top:20px; font-size:0.8rem; color:#888; cursor:pointer;" onclick="showManual()">IP manuell eingeben</div>
+    </div>
+    <div id="step2" class="step">
+        <p>Bridge gefunden!</p>
+        <input type="text" id="bridgeIp" placeholder="192.168.x.x">
+        <p style="font-size: 0.9rem;">Drücke jetzt den <b>großen runden Knopf</b> auf deiner Hue Bridge.</p>
+        <button onclick="register()">🔗 Verbinden</button>
+        <div id="errorMsg" class="error"></div>
+    </div>
+    <div id="step3" class="step">
+        <p>Hue Verbunden! Jetzt Loxone konfigurieren.</p>
+        <label>Loxone Miniserver IP</label>
+        <input type="text" id="loxIp" placeholder="192.168.x.x">
+        <label>UDP Port (Empfang)</label>
+        <input type="number" id="loxPort" value="7000">
+        <div class="checkbox-container">
+            <input type="checkbox" id="debugMode">
+            <span>Debug Logs aktivieren</span>
+        </div>
+        <button onclick="saveConfig()">💾 Speichern & Starten</button>
+    </div>
+    <div id="step4" class="step">
+        <h2 style="color:var(--accent)">Fertig! 🎉</h2>
+        <p>Deine Bridge ist einsatzbereit.</p>
+        <button onclick="window.location.reload()">Zum Dashboard</button>
+    </div>
+</div>
+
+<script>
+    function showStep(id) {
+        document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+        document.getElementById(id).classList.add('active');
+    }
+    function showManual() { showStep('step2'); }
+    async function discoverBridge() {
+        const btn = document.querySelector('#step1 button');
+        btn.innerHTML = '<span class="spinner"></span> Suche...'; btn.disabled = true;
+        try {
+            const res = await fetch('/api/setup/discover');
+            const bridges = await res.json();
+            if (bridges.length > 0) { document.getElementById('bridgeIp').value = bridges[0].internalipaddress; showStep('step2'); }
+            else { alert("Keine Bridge gefunden."); showStep('step2'); }
+        } catch (e) { alert("Fehler bei der Suche."); showStep('step2'); }
+    }
+    async function register() {
+        const ip = document.getElementById('bridgeIp').value;
+        const btn = document.querySelector('#step2 button');
+        const err = document.getElementById('errorMsg');
+        btn.innerHTML = '<span class="spinner"></span> Verbinde...'; btn.disabled = true; err.innerText = "";
+        try {
+            const res = await fetch('/api/setup/register', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ ip }) });
+            const data = await res.json();
+            if (data.success) { showStep('step3'); } 
+            else { err.innerText = "Fehler: " + (data.error || "Knopf gedrückt?"); btn.disabled = false; btn.innerText = "🔗 Verbinden"; }
+        } catch (e) { err.innerText = "Netzwerkfehler."; btn.disabled = false; btn.innerText = "🔗 Verbinden"; }
+    }
+    async function saveConfig() {
+        const loxIp = document.getElementById('loxIp').value;
+        const loxPort = document.getElementById('loxPort').value;
+        const debug = document.getElementById('debugMode').checked;
+        if(!loxIp) return alert("Bitte Loxone IP eingeben");
+        await fetch('/api/setup/loxone', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ loxoneIp: loxIp, loxonePort: loxPort, debug: debug }) });
+        showStep('step4');
+    }
+</script>
+</body>
+</html>

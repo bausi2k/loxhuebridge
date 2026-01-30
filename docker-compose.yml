@@ -1,0 +1,17 @@
+services:
+  loxhuebridge:
+    # Neu: Wir laden das fertige Image von GitHub
+    image: ghcr.io/bausi2k/loxhuebridge:latest
+    
+    container_name: loxhuebridge
+    restart: always
+    
+    # WICHTIG für Loxone UDP Kommunikation
+    network_mode: "host"
+    
+    environment:
+      - TZ=Europe/Vienna
+      
+    volumes:
+      # Nur noch der Data-Ordner ist wichtig
+      - ./data:/app/data

@@ -1,0 +1,51 @@
+# --- Node.js Standard ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# --- Logs ---
+logs
+*.log
+npm-debug.log*
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# --- Environment & Security (WICHTIG!) ---
+# Hier speichern wir später Hue-Usernames und IPs
+.env
+.env.local
+.env.bak
+.env.development.local
+.env.test.local
+.env.production.local
+config.json
+# Falls du Zertifikate für HTTPS nutzt:
+*.pem
+*.crt
+*.key
+mapping.json
+setup_hue.js
+HueSettings
+docker-compose_dev.yml
+
+# --- IDE & Editor Dateien ---
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# --- Optional: Build Ordner (falls wir später TypeScript nutzen) ---
+dist/
+build/
+coverage/
+
+# myEdits
+iniprompt.md
+http_lox_server_VO.xml
+udp_lox_server_VI.xml
+data/logs.dbdata/*.db*

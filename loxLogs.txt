@@ -1,0 +1,265 @@
+loxHueBridge läuft auf Port 8555
+[2025-11-26T18:43:51.378Z] Request: /l/30/ww/201004450
+--- Loxone Befehl empfangen ---
+Ziel:      Einzellicht (ID: 30)
+Modus:     Warmweiß (Smart Actuator)
+Roh-Wert:  201004450
+-------------------------------
+[2025-11-26T18:44:00.684Z] Request: /l/30/ww/200004450
+--- Loxone Befehl empfangen ---
+Ziel:      Einzellicht (ID: 30)
+Modus:     Warmweiß (Smart Actuator)
+Roh-Wert:  200004450
+-------------------------------
+[2025-11-26T18:44:48.596Z] Request: /l/52/rgb/39066
+--- Loxone Befehl empfangen ---
+Ziel:      Einzellicht (ID: 52)
+Modus:     Farbe (RGB)
+Roh-Wert:  39066
+-------------------------------
+[2025-11-26T18:44:56.185Z] Request: /l/52/rgb/0
+--- Loxone Befehl empfangen ---
+Ziel:      Einzellicht (ID: 52)
+Modus:     Farbe (RGB)
+Roh-Wert:  0
+>> Aktion: AUSSCHALTEN
+-------------------------------
+[2025-11-26T18:45:01.126Z] Request: /l/52/rgb/70091100
+--- Loxone Befehl empfangen ---
+Ziel:      Einzellicht (ID: 52)
+Modus:     Farbe (RGB)
+Roh-Wert:  70091100
+-------------------------------
+[2025-11-26T18:45:02.151Z] Request: /l/52/rgb/0
+--- Loxone Befehl empfangen ---
+Ziel:      Einzellicht (ID: 52)
+Modus:     Farbe (RGB)
+Roh-Wert:  0
+>> Aktion: AUSSCHALTEN
+-------------------------------
+[2025-11-26T18:45:48.779Z] Request: /l/19/ea/1
+--- Loxone Befehl empfangen ---
+Ziel:      Einzellicht (ID: 19)
+Modus:     Schalter (Ein/Aus)
+Roh-Wert:  1
+>> Aktion: EINSCHALTEN
+-------------------------------
+[2025-11-26T18:45:52.825Z] Request: /l/19/ea/0
+--- Loxone Befehl empfangen ---
+Ziel:      Einzellicht (ID: 19)
+Modus:     Schalter (Ein/Aus)
+Roh-Wert:  0
+>> Aktion: AUSSCHALTEN
+-------------------------------
+[2025-11-26T18:47:04.890Z] Request: /l/10/dim/30
+--- Loxone Befehl empfangen ---
+Ziel:      Einzellicht (ID: 10)
+Modus:     Dimmer (Helligkeit)
+Roh-Wert:  30
+>> Aktion: Setze Helligkeit auf 30%
+-------------------------------
+[2025-11-26T18:47:05.182Z] Request: /l/10/dim/52
+--- Loxone Befehl empfangen ---
+Ziel:      Einzellicht (ID: 10)
+Modus:     Dimmer (Helligkeit)
+Roh-Wert:  52
+>> Aktion: Setze Helligkeit auf 52%
+-------------------------------
+[2025-11-26T18:47:08.831Z] Request: /l/10/dim/0
+--- Loxone Befehl empfangen ---
+Ziel:      Einzellicht (ID: 10)
+Modus:     Dimmer (Helligkeit)
+Roh-Wert:  0
+>> Aktion: AUSSCHALTEN
+
+
+
+###
+Erweiterung mit JSON Outputs
+
+loxHueBridge V0.2 läuft auf Port 8555
+[20:14:23] In: /l/10/dim/10
+------------------------------------------
+Loxone: /l/10/dim/10
+Aktion: Dimmen auf 10%
+Generierter Hue Payload:
+{
+  "on": {
+    "on": true
+  },
+  "dimming": {
+    "brightness": 10
+  }
+}
+------------------------------------------
+[20:14:23] In: /l/10/dim/20
+------------------------------------------
+Loxone: /l/10/dim/20
+Aktion: Dimmen auf 20%
+Generierter Hue Payload:
+{
+  "on": {
+    "on": true
+  },
+  "dimming": {
+    "brightness": 20
+  }
+}
+------------------------------------------
+[20:14:23] In: /l/10/dim/24
+------------------------------------------
+Loxone: /l/10/dim/24
+Aktion: Dimmen auf 24%
+Generierter Hue Payload:
+{
+  "on": {
+    "on": true
+  },
+  "dimming": {
+    "brightness": 24
+  }
+}
+------------------------------------------
+[20:14:23] In: /l/10/dim/26
+------------------------------------------
+Loxone: /l/10/dim/26
+Aktion: Dimmen auf 26%
+Generierter Hue Payload:
+{
+  "on": {
+    "on": true
+  },
+  "dimming": {
+    "brightness": 26
+  }
+}
+------------------------------------------
+[20:14:27] In: /l/10/dim/0
+------------------------------------------
+Loxone: /l/10/dim/0
+Aktion: Ausschalten (0%)
+Generierter Hue Payload:
+{
+  "on": {
+    "on": false
+  }
+}
+------------------------------------------
+[20:14:58] In: /l/30/ww/200253432
+------------------------------------------
+Loxone: /l/30/ww/200253432
+Aktion: WW: 25% Hell, 3432K (291 Mirek)
+Generierter Hue Payload:
+{
+  "on": {
+    "on": true
+  },
+  "dimming": {
+    "brightness": 25
+  },
+  "color_temperature": {
+    "mirek": 291
+  }
+}
+------------------------------------------
+[20:14:59] In: /l/30/ww/200102700
+------------------------------------------
+Loxone: /l/30/ww/200102700
+Aktion: WW: 10% Hell, 2700K (370 Mirek)
+Generierter Hue Payload:
+{
+  "on": {
+    "on": true
+  },
+  "dimming": {
+    "brightness": 10
+  },
+  "color_temperature": {
+    "mirek": 370
+  }
+}
+------------------------------------------
+[20:14:59] In: /l/30/ww/200002700
+------------------------------------------
+Loxone: /l/30/ww/200002700
+Aktion: WW Ausschalten
+Generierter Hue Payload:
+{
+  "on": {
+    "on": false
+  }
+}
+------------------------------------------
+[20:15:33] In: /l/52/rgb/25053080
+------------------------------------------
+Loxone: /l/52/rgb/25053080
+Aktion: RGB: R80 G53 B25 -> xy[0.5161,0.4064]
+Generierter Hue Payload:
+{
+  "on": {
+    "on": true
+  },
+  "dimming": {
+    "brightness": 80
+  },
+  "color": {
+    "xy": {
+      "x": 0.5161,
+      "y": 0.4064
+    }
+  }
+}
+------------------------------------------
+[20:15:34] In: /l/52/rgb/70091100
+------------------------------------------
+Loxone: /l/52/rgb/70091100
+Aktion: RGB: R100 G91 B70 -> xy[0.3826,0.4007]
+Generierter Hue Payload:
+{
+  "on": {
+    "on": true
+  },
+  "dimming": {
+    "brightness": 100
+  },
+  "color": {
+    "xy": {
+      "x": 0.3826,
+      "y": 0.4007
+    }
+  }
+}
+------------------------------------------
+[20:15:34] In: /l/52/rgb/0
+------------------------------------------
+Loxone: /l/52/rgb/0
+Aktion: RGB Ausschalten
+Generierter Hue Payload:
+{
+  "on": {
+    "on": false
+  }
+}
+------------------------------------------
+[20:22:00] In: /l/19/ea/1
+------------------------------------------
+Loxone: /l/19/ea/1
+Aktion: Einschalten
+Generierter Hue Payload:
+{
+  "on": {
+    "on": true
+  }
+}
+------------------------------------------
+[20:22:01] In: /l/19/ea/0
+------------------------------------------
+Loxone: /l/19/ea/0
+Aktion: Ausschalten
+Generierter Hue Payload:
+{
+  "on": {
+    "on": false
+  }
+}
+------------------------------------------

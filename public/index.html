@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>loxHueBridge</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&family=Fira+Code:wght@400&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="container">
+    <header><h1>loxHueBridge</h1><p style="color:var(--text-muted)">Dashboard</p></header>
+    
+    <div class="tabs">
+        <div class="tab active" data-tab="light" onclick="setTab('light')">💡 Lichter</div>
+        <div class="tab" data-tab="sensor" onclick="setTab('sensor')">📡 Sensoren</div>
+        <div class="tab" data-tab="button" onclick="setTab('button')">🔘 Schalter</div>
+        <div class="tab" data-tab="system" onclick="setTab('system')">⚙️ System</div>
+        <div class="tab" data-tab="diag" onclick="setTab('diag')">🩺 Diagnose</div>
+    </div>
+
+    <div id="main-interface" class="tab-content active">
+        <div class="detected-area" id="detectedContainer" style="display:none">
+            <div class="card" style="border: 1px dashed var(--border);">
+                <h3 style="margin-top:0; font-size: 1rem;">⚡ Neue Loxone Befehle</h3>
+                <div id="detectedList" class="chip-container"></div>
+                <p style="font-size: 0.8rem; color: var(--text-muted); margin: 5px 0 0 0;">Klicke auf einen Befehl, um ihn zuzuordnen.</p>
+            </div>
+        </div>
+
+        <div class="grid">
+            <div>
+                <h2>Verbindung</h2>
+                <div class="card">
+                    <label>Loxone Name</label><input type="text" id="inName" placeholder="...">
+                    <p id="hintAll" style="font-size: 0.8rem; color: var(--accent); margin-top: 5px; margin-bottom: 15px; display:none">
+                        ℹ️ Tipp: Nutze <b>'all'</b> im Dropdown oder als Namen, um alle zu steuern.
+                    </p>
+                    <div style="text-align: center; margin: 15px 0;">⬇</div>
+                    <label>Hue Gerät</label><select id="hueTarget"><option>Lade...</option></select>
+                    <button class="add-btn" onclick="addMapping()">Speichern</button>
+                </div>
+            </div>
+            <div>
+                <div class="header-actions">
+                    <h2 style="margin:0">Aktiv</h2>
+                    <button class="action-btn" onclick="openExportModal()">📥 XML Exportieren</button>
+                </div>
+                <div id="mappingList" class="mapping-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="system-interface" class="tab-content">
+        <h2>Einstellungen</h2>
+        <div class="card">
+            <table class="settings-table" id="settingsTable"><tr><td>Lade...</td><td></td></tr></table>
+            <div style="text-align: right; margin-top: 15px;">
+                <button class="add-btn" style="width:auto; margin:0;" onclick="saveSettings()">Speichern</button>
+            </div>
+        </div>
+        
+        <h2>Wartung & Backup</h2>
+        <div class="card">
+            <div style="display:flex; gap:10px; margin-bottom:15px;">
+                <button class="add-btn" style="background:#666; margin:0;" onclick="downloadLog()">📜 Logs herunterladen</button>
+                <button class="add-btn" style="background:var(--danger); margin:0;" onclick="restartServer()">🔄 Server Neustart</button>
+            </div>
+            <div style="display:flex; gap:10px;">
+                <button class="add-btn" style="background:var(--text-main); margin:0;" onclick="downloadBackup()">💾 Backup erstellen (Export)</button>
+                <button class="add-btn" style="background:transparent; border:1px solid var(--text-main); color:var(--text-main); margin:0;" onclick="triggerRestore()">📂 Backup wiederherstellen (Import)</button>
+                <input type="file" id="restoreInput" style="display:none" accept=".json" onchange="restoreBackup(this)">
+            </div>
+        </div>
+
+        <h2>Server Logs</h2>
+        <div class="filter-bar" style="align-items:center; flex-wrap:wrap;">
+            <div style="display:flex; gap:5px;">
+                <button class="filter-btn active" data-filter="ALL" onclick="setLogFilter('ALL')">Alle</button>
+                <button class="filter-btn" data-filter="LIGHT" onclick="setLogFilter('LIGHT')">💡</button>
+                <button class="filter-btn" data-filter="SENSOR" onclick="setLogFilter('SENSOR')">📡</button>
+                <button class="filter-btn" data-filter="BUTTON" onclick="setLogFilter('BUTTON')">🔘</button>
+                <button class="filter-btn" data-filter="SYSTEM" onclick="setLogFilter('SYSTEM')">⚙️</button>
+            </div>
+            <input type="text" id="logSearch" placeholder="🔍 Suche (z.B. 'Bad')..." 
+                   style="flex:1; padding:6px 10px; font-size:0.85rem; margin:0; min-width:150px;" 
+                   onkeyup="delaySearch()">
+        </div>
+        <div class="log-console" id="logConsole"><div style="text-align:center; padding-top:20px; color:#666;">Warte auf Logs...</div></div>
+    </div>
+
+    <div id="diag-interface" class="tab-content">
+        <h2>Zigbee Netzwerk Status</h2>
+        <div class="card">
+            <button class="add-btn" style="width:auto; padding: 8px 15px; margin-top:0" onclick="loadDiagnostics()">🔄 Aktualisieren</button>
+            <div id="diagContent" style="margin-top:15px">
+                <div style="text-align:center; color:var(--text-muted)">Klicke auf Aktualisieren...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="exportModal" class="modal-overlay">
+    <div class="modal-box">
+        <div class="modal-header">
+            <h2 style="margin:0">Export Auswahl</h2>
+            <button class="btn-link" onclick="toggleSelectAll()">Alles markieren</button>
+        </div>
+        <div class="modal-list" id="exportList"></div>
+        <div class="modal-actions">
+            <button class="btn-sec" onclick="closeModal('exportModal')">Abbrechen</button>
+            <button class="btn-prim" onclick="doExport()">Exportieren</button>
+        </div>
+    </div>
+</div>
+
+<div id="detailsModal" class="modal-overlay">
+    <div class="modal-box">
+        <div class="modal-header">
+            <h2 style="margin:0">Geräte Details</h2>
+            <button class="btn-link" onclick="closeModal('detailsModal')">✕</button>
+        </div>
+        <div id="detailsContent"></div>
+        <div class="modal-actions" style="margin-top:20px">
+            <button class="btn-sec" onclick="closeModal('detailsModal')">Schließen</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let currentTab = 'light';
+    let targets = [];
+    let mappings = [];
+    let status = {};
+    let detectedHistory = [];
+    let logInterval = null;
+    let allSelected = false;
+    let currentLogFilter = 'ALL';
+    let cachedLogs = [];
+    let searchTimeout = null; 
+
+    // --- DEBUG HELPER ---
+    function debugLog(msg) { console.log(`[UI] ${msg}`); }
+
+    async function init() {
+        debugLog("Init...");
+        await loadTargets();
+        await loadMappings();
+        loadDetected(); 
+        loadStatus();
+        
+        setInterval(loadDetected, 3000);
+        setInterval(loadStatus, 2000);
+        loadLogs();
+    }
+
+    // --- TAB SWITCHING ---
+    function setTab(tab) {
+        debugLog(`Tab: ${tab}`);
+        currentTab = tab;
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelector(`.tab[data-tab="${tab}"]`).classList.add('active');
+        const hint = document.getElementById('hintAll');
+        if(hint) hint.style.display = tab === 'light' ? 'block' : 'none';
+
+        document.getElementById('main-interface').classList.remove('active');
+        document.getElementById('system-interface').classList.remove('active');
+        document.getElementById('diag-interface').classList.remove('active');
+        
+        if(logInterval) { clearInterval(logInterval); logInterval = null; }
+
+        if (tab === 'system') {
+            document.getElementById('system-interface').classList.add('active');
+            loadSettings();
+            loadLogs();
+            if(!logInterval) logInterval = setInterval(loadLogs, 2000);
+        } else if (tab === 'diag') {
+            document.getElementById('diag-interface').classList.add('active');
+            loadDiagnostics();
+        } else {
+            document.getElementById('main-interface').classList.add('active');
+            renderDropdown(); 
+            renderMappings();
+        }
+    }
+
+    // --- DETECTED COMMANDS ---
+    async function loadDetected() {
+        try {
+            const res = await fetch('/api/detected');
+            const detected = await res.json();
+            const filteredDetected = detected.filter(d => d.type === 'command');
+            
+            // Check changes
+            if (JSON.stringify(filteredDetected) === JSON.stringify(detectedHistory)) return;
+            detectedHistory = filteredDetected;
+
+            const list = document.getElementById('detectedList');
+            const container = document.getElementById('detectedContainer');
+            
+            if (filteredDetected.length === 0) { 
+                container.style.display = 'none'; 
+                return; 
+            }
+            container.style.display = 'block';
+            list.innerHTML = '';
+            
+            filteredDetected.forEach(d => {
+                const div = document.createElement('div');
+                div.className = `chip command`;
+                div.innerHTML = `<span>📥</span> /${d.name}`;
+                div.onclick = () => {
+                    if (currentTab !== 'light') setTab('light');
+                    document.getElementById('inName').value = d.name;
+                    document.getElementById('inName').focus();
+                };
+                list.appendChild(div);
+            });
+        } catch(e) {}
+    }
+
+    // --- LOGS & FILTER ---
+    function setLogFilter(filter) {
+        currentLogFilter = filter;
+        document.querySelectorAll('.filter-btn').forEach(b => {
+            b.classList.toggle('active', b.dataset.filter === filter);
+        });
+        loadLogs(); 
+    }
+
+    function delaySearch() {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(loadLogs, 400); 
+    }
+
+    async function loadLogs() {
+        try {
+            let url = '/api/logs?limit=100';
+            if (currentLogFilter !== 'ALL') url += `&category=${currentLogFilter}`;
+            const searchInput = document.getElementById('logSearch');
+            if (searchInput && searchInput.value.trim()) url += `&search=${encodeURIComponent(searchInput.value.trim())}`;
+            
+            const res = await fetch(url);
+            if (!res.ok) throw new Error("Netzwerkfehler");
+            cachedLogs = await res.json();
+            renderLogs();
+        } catch(e) {
+            const el = document.getElementById('logConsole');
+            if(el) el.innerHTML = `<div style="color:red;text-align:center">Fehler: ${e.message}</div>`;
+        }
+    }
+
+    function renderLogs() {
+        const consoleDiv = document.getElementById('logConsole');
+        if(!consoleDiv) return;
+        if (!cachedLogs || cachedLogs.length === 0) {
+            consoleDiv.innerHTML = '<div style="text-align:center; color:#555; padding-top:20px;">Keine Einträge gefunden.</div>';
+            return;
+        }
+        const html = cachedLogs.map(l => {
+            const cat = l.category || 'SYSTEM';
+            let lvlColor = '#fff';
+            if(l.level === 'INFO') lvlColor = '#61afef';
+            if(l.level === 'SUCCESS') lvlColor = '#98c379';
+            if(l.level === 'WARN') lvlColor = '#e5c07b';
+            if(l.level === 'ERROR') lvlColor = '#e06c75';
+            if(l.level === 'DEBUG') lvlColor = '#c678dd';
+            
+            return `<div class="log-entry" style="border-bottom:1px solid #333; margin-bottom:2px; font-family:monospace; font-size:0.85rem;">` +
+                `<span class="log-time" style="color:#888; margin-right:10px;">${l.time}</span>` +
+                `<span class="log-cat" style="background:#444; color:#fff; padding:1px 4px; border-radius:3px; margin-right:5px; font-size:0.8em">${cat}</span>` +
+                `<span class="log-level" style="color:${lvlColor}; font-weight:bold; margin-right:10px;">${l.level}</span>` +
+                `<span style="color:#ddd; white-space: pre-wrap;">${l.msg}</span>` +
+            `</div>`;
+        }).join('');
+        if(consoleDiv.innerHTML.length !== html.length) consoleDiv.innerHTML = html;
+    }
+
+    // --- MAPPINGS & RENDER ---
+    function renderMappings() {
+        const list = document.getElementById('mappingList');
+        if(!list) return;
+        list.innerHTML = '';
+        const filtered = mappings.filter(m => {
+            if (currentTab === 'light') return m.hue_type === 'light' || m.hue_type === 'group';
+            if (currentTab === 'sensor') return m.hue_type === 'sensor';
+            if (currentTab === 'button') return m.hue_type === 'button';
+            return false;
+        });
+        
+        const appendGroup = (title, items, color) => {
+            if(items.length===0) return;
+            items.sort((a,b)=>a.loxone_name.localeCompare(b.loxone_name));
+            const h = document.createElement('div');
+            h.innerText = title; h.style.cssText = `font-weight:bold; color:${color}; margin:15px 0 5px 0; border-bottom:1px solid #ddd;`;
+            list.appendChild(h);
+            items.forEach(m=>list.appendChild(createMappingItem(m)));
+        };
+
+        if(currentTab === 'sensor') {
+            const motion = [], contact = [], other = [];
+            filtered.forEach(m => {
+                const st = status[m.loxone_name] || {};
+                if(st.contact !== undefined) contact.push(m);
+                else if(st.motion !== undefined) motion.push(m);
+                else other.push(m);
+            });
+            appendGroup(`🚪 Kontakte (${contact.length})`, contact, 'var(--danger)');
+            appendGroup(`🏃 Bewegung (${motion.length})`, motion, 'var(--sensor)');
+            appendGroup(`📡 Sonstige (${other.length})`, other, 'var(--text-muted)');
+        } else if(currentTab === 'light') {
+            const on = [], off = [];
+            filtered.forEach(m => {
+                const st = status[m.loxone_name] || {};
+                (st.on === 1 || st.on === true ? on : off).push(m);
+            });
+            appendGroup(`💡 Ein (${on.length})`, on, 'var(--accent)');
+            appendGroup(`🌑 Aus (${off.length})`, off, 'var(--text-muted)');
+        } else {
+            filtered.sort((a,b)=>a.loxone_name.localeCompare(b.loxone_name));
+            filtered.forEach(m => list.appendChild(createMappingItem(m)));
+        }
+        if(filtered.length === 0) list.innerHTML = '<div style="padding:10px; color:#999; text-align:center">Leer</div>';
+    }
+
+    function createMappingItem(m) {
+        const st = status[m.loxone_name] || {};
+        let badges = '';
+        const has = (v) => v !== undefined && v !== null;
+
+        if (has(st.motion)) badges += `<span class="badge" style="background:var(--border)">${st.motion?'🏃':'🧘'}</span>`;
+        if (has(st.temp)) badges += `<span class="badge">${st.temp}°C</span>`;
+        if (has(st.lux)) badges += `<span class="badge">${st.lux} lx</span>`;
+        if (has(st.contact)) badges += `<span class="badge" style="background:${st.contact?'#ffcdcd':'#e1ffe1'}">${st.contact?'🔓 OFFEN':'🔒 ZU'}</span>`;
+        if (has(st.bat)) badges += `<span class="badge">🔋${st.bat}%</span>`;
+        
+        if (has(st.on)) {
+            if(currentTab === 'light' || st.on) {
+                const bg = st.on ? '#e1ffe1' : '#eee';
+                const txt = st.on ? 'AN' : 'AUS';
+                badges += `<span class="badge" style="background:${bg}">${txt}</span>`;
+            }
+        }
+        
+        if (has(st.bri) && st.on) badges += `<span class="badge">${Math.round(st.bri)}%</span>`;
+        if (st.hex && st.on) badges += `<span class="color-dot" style="background-color:${st.hex}"></span>`;
+        if (st.rotary) { 
+            const val = (st.rotary === 'cw' || st.rotary === 'ccw') ? st.rotary.toUpperCase() : st.rotary;
+            badges += `<span class="badge" style="background:#e1f5fe">🔄 ${val}</span>`; 
+        }
+
+        let infoBtn = m.hue_type === 'light' ? `<button class="info-btn" onclick="showDetails('${m.hue_uuid}','${m.loxone_name}')">ℹ️</button>` : '';
+        let syncBox = currentTab === 'light' ? `<label class="sync-check ${m.sync_lox?'sync-active':''}"><input type="checkbox" ${m.sync_lox?'checked':''} onchange="toggleSync('${m.loxone_name}',this.checked)">Sync</label>` : '';
+
+        const div = document.createElement('div');
+        div.className = `mapping-item type-${m.hue_type}`;
+        div.innerHTML = `<div><div class="mapping-lox">${m.loxone_name}</div><div class="mapping-hue">${m.hue_name} ${infoBtn}</div></div>
+        <div style="display:flex; align-items:center">${syncBox}<div class="status-badges">${badges}</div><button class="del-btn" onclick="deleteMapping('${m.loxone_name}')">✖</button></div>`;
+        return div;
+    }
+
+    // --- DATA LOADING & ACTIONS ---
+    async function loadTargets() { try { targets = await (await fetch('/api/targets')).json(); if(currentTab!=='system') renderDropdown(); } catch(e){} }
+    async function loadMappings() { try { mappings = await (await fetch('/api/mapping')).json(); if(currentTab!=='system') renderMappings(); } catch(e){} }
+    async function loadStatus() { try { status = await (await fetch('/api/status')).json(); if(currentTab!=='system') renderMappings(); } catch(e){} }
+    
+    function renderDropdown() {
+        const select = document.getElementById('hueTarget');
+        if(!select) return;
+        select.innerHTML = '<option value="">-- Wählen --</option>';
+        targets.forEach(t => {
+            if(mappings.some(m=>m.hue_uuid === t.uuid)) return;
+            if(currentTab === 'light' && (t.type !== 'light' && t.type !== 'group')) return;
+            if(currentTab === 'sensor' && t.type !== 'sensor') return;
+            if(currentTab === 'button' && t.type !== 'button') return;
+            const opt = document.createElement('option');
+            opt.value = t.uuid; opt.innerHTML = t.name; opt.dataset.type = t.type;
+            select.appendChild(opt);
+        });
+    }
+
+    async function addMapping() {
+        const nameIn = document.getElementById('inName');
+        const hueSel = document.getElementById('hueTarget');
+        if(!nameIn.value || !hueSel.value) return alert("Fehlende Daten");
+        mappings.push({loxone_name: nameIn.value.toLowerCase(), hue_uuid: hueSel.value, hue_name: hueSel.options[hueSel.selectedIndex].text, hue_type: hueSel.options[hueSel.selectedIndex].dataset.type});
+        await fetch('/api/mapping', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(mappings)});
+        nameIn.value=''; loadMappings(); loadTargets();
+    }
+    async function deleteMapping(name) {
+        if(!confirm('Löschen?')) return;
+        mappings = mappings.filter(m=>m.loxone_name !== name);
+        await fetch('/api/mapping', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(mappings)});
+        loadMappings(); loadTargets();
+    }
+
+    async function saveSettings() {
+        const d = {};
+        ['sys_loxIp', 'sys_loxPort', 'sys_mqttBroker', 'sys_mqttPort', 'sys_mqttUser', 'sys_mqttPass', 'sys_mqttPrefix'].forEach(id => d[id.replace('sys_','')] = document.getElementById(id).value);
+        d.debug = document.getElementById('sys_debug').checked;
+        d.mqttEnabled = document.getElementById('sys_mqttEnabled').checked;
+        // NEU: Disable Log Disk
+        d.disableLogDisk = document.getElementById('sys_disableLogDisk').checked;
+
+        try {
+            await fetch('/api/setup/loxone', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
+                loxoneIp: d.loxIp, loxonePort: d.loxPort, debug: d.debug,
+                mqttEnabled: d.mqttEnabled, mqttBroker: d.mqttBroker, mqttPort: d.mqttPort, mqttUser: d.mqttUser, mqttPass: d.mqttPass, mqttPrefix: d.mqttPrefix,
+                disableLogDisk: d.disableLogDisk
+            })});
+            alert("Gespeichert!");
+        } catch(e) { alert("Fehler!"); }
+    }
+
+    async function loadSettings() {
+        try {
+            const s = await (await fetch('/api/settings')).json();
+            const table = document.getElementById('settingsTable');
+            const v = (val) => val || '';
+            // NEU: SD Card Mode Checkbox
+            table.innerHTML = `
+                <tr><td colspan="2" style="background:#eee;font-weight:bold">Allgemein</td></tr>
+                <tr><td>Version</td><td><span class="badge" style="background:#333;color:#fff">${s.version}</span></td></tr>
+                <tr><td>Loxone IP</td><td><input id="sys_loxIp" value="${v(s.loxone_ip)}"></td></tr>
+                <tr><td>UDP Port</td><td><input type="number" id="sys_loxPort" value="${v(s.loxone_port)}"></td></tr>
+                <tr><td>Debug Modus</td><td><input type="checkbox" id="sys_debug" ${s.debug?'checked':''}></td></tr>
+                <tr>
+                    <td>SD-Card Mode</td>
+                    <td>
+                        <input type="checkbox" id="sys_disableLogDisk" ${s.disableLogDisk?'checked':''}>
+                        <div style="font-size:0.7em; color:var(--text-muted); margin-top:2px">Deaktiviert Schreibzugriffe auf logs.db (schont SD-Karten). Logs gehen bei Neustart verloren.</div>
+                    </td>
+                </tr>
+
+                <tr><td colspan="2" style="background:#eee;font-weight:bold">MQTT</td></tr>
+                <tr><td>Aktivieren</td><td><input type="checkbox" id="sys_mqttEnabled" ${s.mqttEnabled?'checked':''}></td></tr>
+                <tr><td>Broker IP</td><td><input id="sys_mqttBroker" value="${v(s.mqttBroker)}"></td></tr>
+                <tr><td>Port</td><td><input type="number" id="sys_mqttPort" value="${v(s.mqttPort)||1883}"></td></tr>
+                <tr><td>User</td><td><input id="sys_mqttUser" value="${v(s.mqttUser)}"></td></tr>
+                <tr><td>Passwort</td><td><input type="password" id="sys_mqttPass" value="${v(s.mqttPass)}"></td></tr>
+                <tr><td>Prefix</td><td><input id="sys_mqttPrefix" value="${v(s.mqttPrefix)||'loxhue'}"></td></tr>
+            `;
+        } catch(e){}
+    }
+
+    function showDetails(uuid, loxoneName) {
+        const target = targets.find(t => t.uuid === uuid);
+        const currentStatus = status[loxoneName] || {};
+        if(!target) return;
+        let content = `<table class="details-table">`;
+        content += `<tr><td colspan="2" style="border-bottom:none; padding-top:10px; color:var(--accent); font-weight:bold;">⚡ Aktueller Status</td></tr>`;
+        const isOn = currentStatus.on === 1 || currentStatus.on === true;
+        content += `<tr><td>Zustand</td><td>${isOn ? '<span class="status-ok">AN</span>' : '<span style="color:#888">AUS</span>'}</td></tr>`;
+        if (isOn) {
+            if (currentStatus.bri !== undefined) content += `<tr><td>Helligkeit</td><td>${Math.round(currentStatus.bri)} %</td></tr>`;
+            if (currentStatus.mirek) {
+                const kelvin = Math.round(1000000 / currentStatus.mirek);
+                content += `<tr><td>Temperatur</td><td>${kelvin} K</td></tr>`;
+            }
+            if (currentStatus.hex) content += `<tr><td>Farbe</td><td><span class="color-dot" style="background-color:${currentStatus.hex}"></span> <span style="font-family:monospace">${currentStatus.hex}</span></td></tr>`;
+        }
+        content += `<tr><td colspan="2" style="border-bottom:none; padding-top:20px; color:var(--text-muted); font-weight:bold;">📋 Technische Daten</td></tr>`;
+        content += `<tr><td>Name</td><td>${target.name}</td></tr>`;
+        content += `<tr><td>Loxone ID</td><td>${loxoneName}</td></tr>`;
+        content += `<tr><td>UUID</td><td style="font-size:0.8em; font-family:monospace">${target.uuid}</td></tr>`;
+        content += `</table>`;
+        document.getElementById('detailsContent').innerHTML = content;
+        document.getElementById('detailsModal').style.display = 'flex';
+    }
+
+    function toggleSelectAll() { allSelected = !allSelected; document.querySelectorAll('.modal-checkbox').forEach(cb => cb.checked = allSelected); }
+    function doExport() {
+        const checked = document.querySelectorAll('.modal-checkbox:checked');
+        if(checked.length === 0) return alert("Bitte wählen.");
+        const names = Array.from(checked).map(cb => cb.value).join(',');
+        const type = currentTab === 'light' ? 'outputs' : 'inputs';
+        window.location.href = `/api/download/${type}?names=${names}`;
+        closeModal('exportModal');
+    }
+    async function toggleSync(loxName, isActive) {
+        const entry = mappings.find(m => m.loxone_name === loxName);
+        if (entry) {
+            entry.sync_lox = isActive;
+            await fetch('/api/mapping', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(mappings) });
+            renderMappings();
+        }
+    }
+    async function restartServer() { if(confirm("Neustart?")) await fetch('/api/system/restart', {method:'POST'}); }
+    function downloadLog() { window.location.href = '/api/system/logdownload'; }
+    function downloadBackup() { window.location.href = '/api/system/backup'; }
+    function triggerRestore() { document.getElementById('restoreInput').click(); }
+    async function restoreBackup(input) {
+        if(!input.files.length) return;
+        const file = input.files[0];
+        if(!confirm('Backup wiederherstellen?')) { input.value = ''; return; }
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            try {
+                const json = JSON.parse(e.target.result);
+                await fetch('/api/system/restore', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(json)});
+                alert("Erfolg! Neustart...");
+                setTimeout(()=>location.reload(), 3000);
+            } catch(err) { alert("Fehler: " + err.message); }
+            input.value = '';
+        };
+        reader.readAsText(file);
+    }
+    function updateTransLabel(val, id, unit) { document.getElementById(id).innerText = val + ' ' + unit; }
+    function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+    function openExportModal() { document.getElementById('exportModal').style.display = 'flex'; loadExportList(); allSelected = false; }
+    function loadExportList() {
+        const list = document.getElementById('exportList');
+        list.innerHTML = '';
+        const filtered = mappings.filter(m => {
+            if (currentTab === 'light') return m.hue_type === 'light' || m.hue_type === 'group';
+            if (currentTab === 'sensor') return m.hue_type === 'sensor';
+            if (currentTab === 'button') return m.hue_type === 'button';
+            return false;
+        });
+        filtered.sort((a,b) => a.loxone_name.localeCompare(b.loxone_name));
+        filtered.forEach(m => {
+            const item = document.createElement('div');
+            item.className = 'modal-item';
+            item.innerHTML = `<input type="checkbox" class="modal-checkbox" value="${m.loxone_name}"><div><div style="font-weight:bold">${m.loxone_name}</div></div>`;
+            list.appendChild(item);
+        });
+    }
+
+    init();
+</script>
+</body>
+</html>

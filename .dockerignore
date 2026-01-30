@@ -1,0 +1,15 @@
+node_modules
+.git
+.gitignore
+*.log
+.env
+Dockerfile
+docker-compose.yml
+config.json
+.env.bak
+iniprompt.md
+config.json
+http_lox_server_VO.xml
+udp_lox_server_VI.xml
+HueSettings
+docker-compose_dev.yml

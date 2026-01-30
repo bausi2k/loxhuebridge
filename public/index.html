@@ -277,52 +277,76 @@
         if(consoleDiv.innerHTML.length !== html.length) consoleDiv.innerHTML = html;
     }
 
-    // --- MAPPINGS & RENDER ---
-    function renderMappings() {
-        const list = document.getElementById('mappingList');
-        if(!list) return;
-        list.innerHTML = '';
-        const filtered = mappings.filter(m => {
-            if (currentTab === 'light') return m.hue_type === 'light' || m.hue_type === 'group';
-            if (currentTab === 'sensor') return m.hue_type === 'sensor';
-            if (currentTab === 'button') return m.hue_type === 'button';
-            return false;
-        });
+	function renderMappings() {
+	        const list = document.getElementById('mappingList');
+	        if(!list) return;
+	        list.innerHTML = '';
+	        const filtered = mappings.filter(m => {
+	            if (currentTab === 'light') return m.hue_type === 'light' || m.hue_type === 'group';
+	            if (currentTab === 'sensor') return m.hue_type === 'sensor';
+	            if (currentTab === 'button') return m.hue_type === 'button';
+	            return false;
+	        });
         
-        const appendGroup = (title, items, color) => {
-            if(items.length===0) return;
-            items.sort((a,b)=>a.loxone_name.localeCompare(b.loxone_name));
-            const h = document.createElement('div');
-            h.innerText = title; h.style.cssText = `font-weight:bold; color:${color}; margin:15px 0 5px 0; border-bottom:1px solid #ddd;`;
-            list.appendChild(h);
-            items.forEach(m=>list.appendChild(createMappingItem(m)));
-        };
+	        const appendGroup = (title, items, color) => {
+	            if(items.length===0) return;
+            
+	            // --- NEUE SORTIERUNG (V2.1.X) ---
+	            // 1. Batterie (Low Bat zuerst) -> 2. Status (Aktiv zuerst) -> 3. Name
+	            items.sort((a,b) => {
+	                const sA = status[a.loxone_name] || {};
+	                const sB = status[b.loxone_name] || {};
 
-        if(currentTab === 'sensor') {
-            const motion = [], contact = [], other = [];
-            filtered.forEach(m => {
-                const st = status[m.loxone_name] || {};
-                if(st.contact !== undefined) contact.push(m);
-                else if(st.motion !== undefined) motion.push(m);
-                else other.push(m);
-            });
-            appendGroup(`🚪 Kontakte (${contact.length})`, contact, 'var(--danger)');
-            appendGroup(`🏃 Bewegung (${motion.length})`, motion, 'var(--sensor)');
-            appendGroup(`📡 Sonstige (${other.length})`, other, 'var(--text-muted)');
-        } else if(currentTab === 'light') {
-            const on = [], off = [];
-            filtered.forEach(m => {
-                const st = status[m.loxone_name] || {};
-                (st.on === 1 || st.on === true ? on : off).push(m);
-            });
-            appendGroup(`💡 Ein (${on.length})`, on, 'var(--accent)');
-            appendGroup(`🌑 Aus (${off.length})`, off, 'var(--text-muted)');
-        } else {
-            filtered.sort((a,b)=>a.loxone_name.localeCompare(b.loxone_name));
-            filtered.forEach(m => list.appendChild(createMappingItem(m)));
-        }
-        if(filtered.length === 0) list.innerHTML = '<div style="padding:10px; color:#999; text-align:center">Leer</div>';
-    }
+	                // Kriterium 1: Batterie (0...100). Annahme: Undefined = 100 (voll/netzbetrieben)
+	                const batA = sA.bat !== undefined ? sA.bat : 100;
+	                const batB = sB.bat !== undefined ? sB.bat : 100;
+	                if (batA !== batB) return batA - batB; // Aufsteigend (Problemfälle oben)
+
+	                // Kriterium 2: Status (Motion/Contact). Aktiv (1) vor Inaktiv (0)
+	                // Wir prüfen auf Existenz von motion oder contact und ob Wert > 0
+	                const actA = (sA.motion || sA.contact) ? 1 : 0;
+	                const actB = (sB.motion || sB.contact) ? 1 : 0;
+	                if (actA !== actB) return actB - actA; // Absteigend (Aktive oben)
+
+	                // Kriterium 3: Name
+	                return a.loxone_name.localeCompare(b.loxone_name);
+	            });
+
+	            const h = document.createElement('div');
+	            h.innerText = title; h.style.cssText = `font-weight:bold; color:${color}; margin:15px 0 5px 0; border-bottom:1px solid #ddd;`;
+	            list.appendChild(h);
+	            items.forEach(m=>list.appendChild(createMappingItem(m)));
+	        };
+
+	        if(currentTab === 'sensor') {
+	            const motion = [], contact = [], other = [];
+	            filtered.forEach(m => {
+	                const st = status[m.loxone_name] || {};
+	                if(st.contact !== undefined) contact.push(m);
+	                else if(st.motion !== undefined) motion.push(m);
+	                else other.push(m);
+	            });
+	            appendGroup(`🚪 Kontakte (${contact.length})`, contact, 'var(--danger)');
+	            appendGroup(`🏃 Bewegung (${motion.length})`, motion, 'var(--sensor)');
+	            appendGroup(`📡 Sonstige (${other.length})`, other, 'var(--text-muted)');
+	        } else if(currentTab === 'light') {
+	            const on = [], off = [];
+	            filtered.forEach(m => {
+	                const st = status[m.loxone_name] || {};
+	                (st.on === 1 || st.on === true ? on : off).push(m);
+	            });
+	            // Bei Lichtern macht Bat-Sortierung keinen Sinn, hier lassen wir Name oder On/Off
+	            on.sort((a,b)=>a.loxone_name.localeCompare(b.loxone_name));
+	            off.sort((a,b)=>a.loxone_name.localeCompare(b.loxone_name));
+	            appendGroup(`💡 Ein (${on.length})`, on, 'var(--accent)');
+	            appendGroup(`🌑 Aus (${off.length})`, off, 'var(--text-muted)');
+	        } else {
+	            // Buttons etc. normal sortieren
+	            filtered.sort((a,b)=>a.loxone_name.localeCompare(b.loxone_name));
+	            filtered.forEach(m => list.appendChild(createMappingItem(m)));
+	        }
+	        if(filtered.length === 0) list.innerHTML = '<div style="padding:10px; color:#999; text-align:center">Leer</div>';
+	    }
 
     function createMappingItem(m) {
         const st = status[m.loxone_name] || {};

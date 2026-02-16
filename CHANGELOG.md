@@ -6,6 +6,12 @@ Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 und dieses Projekt hält sich an [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 [![Buy Me A Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://www.buymeacoffee.com/bausi2k)
 
+## [2.1.1] - 2026-02-16
+### 🐛 Bugfixes
+- **Sonoff / On-Off Fix:** Reine Schaltaktoren (ohne Dimm-Funktion) erhalten nun keine `dynamics` Parameter mehr. Das behebt Probleme mit Geräten wie dem Sonoff ZBMINIR2, die sich sonst nicht ausschalten ließen.
+- **Queue Timing:** Die Einstellung `throttleTime` (Drosselung) gilt nun auch korrekt für Gruppen- und Zonen-Befehle (war vorher fest auf 1100ms).
+- **Sensor Sortierung:** Im Dashboard werden Sensoren nun nach Wichtigkeit sortiert (Leere Batterie -> Aktiv -> Name).
+
 ## [2.1.0] - 2026-01-29
 ### 🌟 New Features
 - **SD-Card Mode:** Neue Option in den Systemeinstellungen, um das Schreiben von Logs auf die Festplatte zu deaktivieren (schont SD-Karten auf Raspberry Pi). Logs werden dann nur im RAM gehalten.

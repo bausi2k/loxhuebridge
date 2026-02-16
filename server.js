@@ -168,6 +168,10 @@ function loadConfig() {
                 if (config.mqttPrefix === undefined) config.mqttPrefix = "loxhue";
                 if (config.disableLogDisk === undefined) config.disableLogDisk = false;
                 
+                // --- FIX: QUEUE SETTINGS AUCH FÜR GRUPPEN ÜBERNEHMEN ---
+                REQUEST_QUEUES.light.delayMs = config.throttleTime;
+                REQUEST_QUEUES.grouped_light.delayMs = Math.max(config.throttleTime, 100);
+
                 if (config.bridgeIp && config.appKey) { 
                     isConfigured=true; 
                     setTimeout(connectToMqtt, 500); 
@@ -190,7 +194,6 @@ if (dbError) log.error(`DB Init fehlgeschlagen: ${dbError}. RAM-Modus aktiv.`, '
 function saveConfigToFile() { 
     try { 
         fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 4)); 
-        // log.info("Konfiguration gespeichert.", 'SYSTEM'); 
     } catch(e) {
         log.error(`Fehler beim Speichern der Config: ${e.message}`, 'SYSTEM');
     } 
@@ -243,7 +246,6 @@ function rgbToMirekFallback(r, g, b, minM, maxM) {
 function hueLightToLux(v) { return Math.round(Math.pow(10, (v - 1) / 10000)); }
 
 const REQUEST_QUEUES = { light: { items: [], isProcessing: false, delayMs: 100 }, grouped_light: { items: [], isProcessing: false, delayMs: 1100 } };
-if(config.throttleTime !== undefined) REQUEST_QUEUES.light.delayMs = config.throttleTime;
 
 async function processQueue(type) {
     const q = REQUEST_QUEUES[type];
@@ -263,10 +265,19 @@ const commandState = {};
 async function updateLightWithQueue(uuid, type, payload, loxName, forcedDuration = null) {
     if (!commandState[uuid]) commandState[uuid] = { busy: false, next: null };
     let duration = config.transitionTime !== undefined ? config.transitionTime : 400;
+    
+    // Check capabilities: Wenn Gerät NICHT dimmbar ist, erzwingen wir duration = 0
+    const caps = lightCapabilities[uuid];
+    if (caps && !caps.supportsDimming) {
+        duration = 0;
+    }
+
     const isDigitalSwitch = Object.keys(payload).length === 1 && payload.on !== undefined;
     if (isDigitalSwitch && payload.on.on === true) duration = 0; 
+    
     if (forcedDuration !== null) duration = forcedDuration;
     if (duration > 0) payload.dynamics = { duration: duration };
+    
     if (commandState[uuid].busy) { commandState[uuid].next = payload; return; }
     commandState[uuid].busy = true;
     await sendToHueRecursive(uuid, type, payload, loxName);
@@ -345,8 +356,12 @@ async function buildDeviceMap() {
         resDev.data.data.forEach(d => d.services.forEach(s => serviceToDeviceMap[s.rid] = { deviceId: d.id, deviceName: d.metadata.name, serviceType: s.rtype }));
         resLight.data.data.forEach(l => {
             lightCapabilities[l.id] = {
-                supportsColor: !!l.color, supportsCt: !!l.color_temperature,
-                min: l.color_temperature?.mirek_schema?.mirek_minimum || 153, max: l.color_temperature?.mirek_schema?.mirek_maximum || 500
+                supportsColor: !!l.color, 
+                supportsCt: !!l.color_temperature,
+                // NEU: Wir prüfen explizit auf 'dimming', um reine Schaltaktoren zu erkennen
+                supportsDimming: !!l.dimming,
+                min: l.color_temperature?.mirek_schema?.mirek_minimum || 153, 
+                max: l.color_temperature?.mirek_schema?.mirek_maximum || 500
             };
         });
     } catch (e) { log.error("Map Error: " + e.message, 'SYSTEM'); }

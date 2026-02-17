@@ -8,10 +8,8 @@ const os = require('os');
 const mqtt = require('mqtt');
 const { DatabaseSync } = require('node:sqlite');
 
-// --- BOOT MSG ---
 console.log("🚀 [BOOT] loxHueBridge Prozess gestartet...");
 
-// --- CRASH MONITOR ---
 process.on('uncaughtException', (err) => {
     console.error('🔥 [FATAL] UNCAUGHT EXCEPTION:', err);
     try { if(insertLogStmt) insertLogStmt.run(Date.now(), 'ERROR', 'SYSTEM', `CRASH: ${err.message}`); } catch(e){}
@@ -29,7 +27,6 @@ const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
 const MAPPING_FILE = path.join(DATA_DIR, 'mapping.json');
 const DB_FILE = path.join(DATA_DIR, 'logs.db');
 
-// Ensure Data Dir
 if (!fs.existsSync(DATA_DIR)) {
     try { fs.mkdirSync(DATA_DIR); console.log(`[INIT] Ordner erstellt: ${DATA_DIR}`); } 
     catch (e) { console.error(`[FATAL] Konnte Datenordner nicht erstellen: ${e.message}`); }
@@ -38,7 +35,6 @@ if (!fs.existsSync(DATA_DIR)) {
 const HTTP_PORT = parseInt(process.env.HTTP_PORT || "8555");
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
-// Default Config
 let config = {
     bridgeIp: process.env.HUE_BRIDGE_IP || null,
     appKey: process.env.HUE_APP_KEY || null,
@@ -56,7 +52,6 @@ let config = {
     disableLogDisk: false
 };
 
-// --- DB SETUP ---
 let db = null;
 let insertLogStmt = null;
 let dbError = null;
@@ -77,7 +72,6 @@ let mqttClient = null;
 const MAX_RAM_LOGS = 500;
 let ramLogs = [];
 
-// --- MQTT SETUP (Safe) ---
 function connectToMqtt() {
     if (mqttClient) { try { mqttClient.end(); } catch(e){} mqttClient = null; }
     
@@ -161,14 +155,12 @@ function loadConfig() {
                 const d = JSON.parse(content);
                 config = { ...config, ...d };
                 
-                // Sanity Checks
                 if (config.transitionTime === undefined) config.transitionTime = 400;
                 if (config.throttleTime === undefined) config.throttleTime = 100;
                 if (config.mqttPort === undefined) config.mqttPort = 1883;
                 if (config.mqttPrefix === undefined) config.mqttPrefix = "loxhue";
                 if (config.disableLogDisk === undefined) config.disableLogDisk = false;
                 
-                // --- FIX: QUEUE SETTINGS AUCH FÜR GRUPPEN ÜBERNEHMEN ---
                 REQUEST_QUEUES.light.delayMs = config.throttleTime;
                 REQUEST_QUEUES.grouped_light.delayMs = Math.max(config.throttleTime, 100);
 
@@ -266,7 +258,6 @@ async function updateLightWithQueue(uuid, type, payload, loxName, forcedDuration
     if (!commandState[uuid]) commandState[uuid] = { busy: false, next: null };
     let duration = config.transitionTime !== undefined ? config.transitionTime : 400;
     
-    // Check capabilities: Wenn Gerät NICHT dimmbar ist, erzwingen wir duration = 0
     const caps = lightCapabilities[uuid];
     if (caps && !caps.supportsDimming) {
         duration = 0;
@@ -358,7 +349,6 @@ async function buildDeviceMap() {
             lightCapabilities[l.id] = {
                 supportsColor: !!l.color, 
                 supportsCt: !!l.color_temperature,
-                // NEU: Wir prüfen explizit auf 'dimming', um reine Schaltaktoren zu erkennen
                 supportsDimming: !!l.dimming,
                 min: l.color_temperature?.mirek_schema?.mirek_minimum || 153, 
                 max: l.color_temperature?.mirek_schema?.mirek_maximum || 500

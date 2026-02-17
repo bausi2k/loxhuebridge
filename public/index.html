@@ -140,7 +140,6 @@
     let cachedLogs = [];
     let searchTimeout = null; 
 
-    // --- DEBUG HELPER ---
     function debugLog(msg) { console.log(`[UI] ${msg}`); }
 
     async function init() {
@@ -155,7 +154,6 @@
         loadLogs();
     }
 
-    // --- TAB SWITCHING ---
     function setTab(tab) {
         debugLog(`Tab: ${tab}`);
         currentTab = tab;
@@ -185,27 +183,67 @@
         }
     }
 
-    // --- DETECTED COMMANDS ---
+    // --- FIX: DIAGNOSE FUNKTION ---
+    async function loadDiagnostics() {
+        const div = document.getElementById('diagContent');
+        if(!div) return;
+        div.innerHTML = '<div style="text-align:center">Lade Daten...</div>';
+        
+        await loadMappings();
+        await loadStatus();
+
+        // Sortierung: Kritische zuerst (Leere Batterie)
+        const sorted = [...mappings].sort((a,b) => {
+            const sA = status[a.loxone_name] || {};
+            const sB = status[b.loxone_name] || {};
+            const batA = sA.bat !== undefined ? sA.bat : 100;
+            const batB = sB.bat !== undefined ? sB.bat : 100;
+            return batA - batB;
+        });
+
+        let html = '<table class="settings-table"><thead><tr><th>Name</th><th>Typ</th><th>Batterie</th><th>Letzter Wert</th></tr></thead><tbody>';
+        
+        sorted.forEach(m => {
+            const st = status[m.loxone_name] || {};
+            let bat = '-';
+            let batStyle = '';
+            if (st.bat !== undefined) {
+                bat = st.bat + '%';
+                if (st.bat <= 10) batStyle = 'color:red; font-weight:bold';
+                else if (st.bat <= 20) batStyle = 'color:orange';
+            }
+
+            let lastVal = '';
+            if (st.on !== undefined) lastVal += `On:${st.on} `;
+            if (st.bri !== undefined) lastVal += `Bri:${Math.round(st.bri)} `;
+            if (st.motion !== undefined) lastVal += `Mot:${st.motion} `;
+            if (st.contact !== undefined) lastVal += `Con:${st.contact} `;
+            if (st.temp !== undefined) lastVal += `${st.temp}°C `;
+            
+            html += `<tr>
+                <td><div style="font-weight:bold">${m.loxone_name}</div><div style="font-size:0.8em;color:#666">${m.hue_name}</div></td>
+                <td><span class="badge" style="background:#eee;color:#333">${m.hue_type}</span></td>
+                <td style="${batStyle}">${bat}</td>
+                <td style="font-size:0.8em; font-family:monospace; color:#555">${lastVal}</td>
+            </tr>`;
+        });
+        
+        html += '</tbody></table>';
+        div.innerHTML = html;
+    }
+
     async function loadDetected() {
         try {
             const res = await fetch('/api/detected');
             const detected = await res.json();
             const filteredDetected = detected.filter(d => d.type === 'command');
-            
-            // Check changes
             if (JSON.stringify(filteredDetected) === JSON.stringify(detectedHistory)) return;
             detectedHistory = filteredDetected;
-
             const list = document.getElementById('detectedList');
             const container = document.getElementById('detectedContainer');
-            
-            if (filteredDetected.length === 0) { 
-                container.style.display = 'none'; 
-                return; 
-            }
+            if (filteredDetected.length === 0) { container.style.display = 'none'; return; }
             container.style.display = 'block';
             list.innerHTML = '';
-            
             filteredDetected.forEach(d => {
                 const div = document.createElement('div');
                 div.className = `chip command`;
@@ -220,7 +258,6 @@
         } catch(e) {}
     }
 
-    // --- LOGS & FILTER ---
     function setLogFilter(filter) {
         currentLogFilter = filter;
         document.querySelectorAll('.filter-btn').forEach(b => {
@@ -240,7 +277,6 @@
             if (currentLogFilter !== 'ALL') url += `&category=${currentLogFilter}`;
             const searchInput = document.getElementById('logSearch');
             if (searchInput && searchInput.value.trim()) url += `&search=${encodeURIComponent(searchInput.value.trim())}`;
-            
             const res = await fetch(url);
             if (!res.ok) throw new Error("Netzwerkfehler");
             cachedLogs = await res.json();
@@ -266,7 +302,6 @@
             if(l.level === 'WARN') lvlColor = '#e5c07b';
             if(l.level === 'ERROR') lvlColor = '#e06c75';
             if(l.level === 'DEBUG') lvlColor = '#c678dd';
-            
             return `<div class="log-entry" style="border-bottom:1px solid #333; margin-bottom:2px; font-family:monospace; font-size:0.85rem;">` +
                 `<span class="log-time" style="color:#888; margin-right:10px;">${l.time}</span>` +
                 `<span class="log-cat" style="background:#444; color:#fff; padding:1px 4px; border-radius:3px; margin-right:5px; font-size:0.8em">${cat}</span>` +
@@ -277,76 +312,66 @@
         if(consoleDiv.innerHTML.length !== html.length) consoleDiv.innerHTML = html;
     }
 
-	function renderMappings() {
-	        const list = document.getElementById('mappingList');
-	        if(!list) return;
-	        list.innerHTML = '';
-	        const filtered = mappings.filter(m => {
-	            if (currentTab === 'light') return m.hue_type === 'light' || m.hue_type === 'group';
-	            if (currentTab === 'sensor') return m.hue_type === 'sensor';
-	            if (currentTab === 'button') return m.hue_type === 'button';
-	            return false;
-	        });
+    // --- MAPPING RENDERER MIT SORTIERUNG ---
+    function renderMappings() {
+        const list = document.getElementById('mappingList');
+        if(!list) return;
+        list.innerHTML = '';
+        const filtered = mappings.filter(m => {
+            if (currentTab === 'light') return m.hue_type === 'light' || m.hue_type === 'group';
+            if (currentTab === 'sensor') return m.hue_type === 'sensor';
+            if (currentTab === 'button') return m.hue_type === 'button';
+            return false;
+        });
         
-	        const appendGroup = (title, items, color) => {
-	            if(items.length===0) return;
-            
-	            // --- NEUE SORTIERUNG (V2.1.X) ---
-	            // 1. Batterie (Low Bat zuerst) -> 2. Status (Aktiv zuerst) -> 3. Name
-	            items.sort((a,b) => {
-	                const sA = status[a.loxone_name] || {};
-	                const sB = status[b.loxone_name] || {};
+        const appendGroup = (title, items, color) => {
+            if(items.length===0) return;
+            // Sort: Battery -> Status -> Name
+            items.sort((a,b) => {
+                const sA = status[a.loxone_name] || {};
+                const sB = status[b.loxone_name] || {};
+                const batA = sA.bat !== undefined ? sA.bat : 100;
+                const batB = sB.bat !== undefined ? sB.bat : 100;
+                if (batA !== batB) return batA - batB; 
+                const actA = (sA.motion || sA.contact) ? 1 : 0;
+                const actB = (sB.motion || sB.contact) ? 1 : 0;
+                if (actA !== actB) return actB - actA; 
+                return a.loxone_name.localeCompare(b.loxone_name);
+            });
 
-	                // Kriterium 1: Batterie (0...100). Annahme: Undefined = 100 (voll/netzbetrieben)
-	                const batA = sA.bat !== undefined ? sA.bat : 100;
-	                const batB = sB.bat !== undefined ? sB.bat : 100;
-	                if (batA !== batB) return batA - batB; // Aufsteigend (Problemfälle oben)
+            const h = document.createElement('div');
+            h.innerText = title; h.style.cssText = `font-weight:bold; color:${color}; margin:15px 0 5px 0; border-bottom:1px solid #ddd;`;
+            list.appendChild(h);
+            items.forEach(m=>list.appendChild(createMappingItem(m)));
+        };
 
-	                // Kriterium 2: Status (Motion/Contact). Aktiv (1) vor Inaktiv (0)
-	                // Wir prüfen auf Existenz von motion oder contact und ob Wert > 0
-	                const actA = (sA.motion || sA.contact) ? 1 : 0;
-	                const actB = (sB.motion || sB.contact) ? 1 : 0;
-	                if (actA !== actB) return actB - actA; // Absteigend (Aktive oben)
-
-	                // Kriterium 3: Name
-	                return a.loxone_name.localeCompare(b.loxone_name);
-	            });
-
-	            const h = document.createElement('div');
-	            h.innerText = title; h.style.cssText = `font-weight:bold; color:${color}; margin:15px 0 5px 0; border-bottom:1px solid #ddd;`;
-	            list.appendChild(h);
-	            items.forEach(m=>list.appendChild(createMappingItem(m)));
-	        };
-
-	        if(currentTab === 'sensor') {
-	            const motion = [], contact = [], other = [];
-	            filtered.forEach(m => {
-	                const st = status[m.loxone_name] || {};
-	                if(st.contact !== undefined) contact.push(m);
-	                else if(st.motion !== undefined) motion.push(m);
-	                else other.push(m);
-	            });
-	            appendGroup(`🚪 Kontakte (${contact.length})`, contact, 'var(--danger)');
-	            appendGroup(`🏃 Bewegung (${motion.length})`, motion, 'var(--sensor)');
-	            appendGroup(`📡 Sonstige (${other.length})`, other, 'var(--text-muted)');
-	        } else if(currentTab === 'light') {
-	            const on = [], off = [];
-	            filtered.forEach(m => {
-	                const st = status[m.loxone_name] || {};
-	                (st.on === 1 || st.on === true ? on : off).push(m);
-	            });
-	            // Bei Lichtern macht Bat-Sortierung keinen Sinn, hier lassen wir Name oder On/Off
-	            on.sort((a,b)=>a.loxone_name.localeCompare(b.loxone_name));
-	            off.sort((a,b)=>a.loxone_name.localeCompare(b.loxone_name));
-	            appendGroup(`💡 Ein (${on.length})`, on, 'var(--accent)');
-	            appendGroup(`🌑 Aus (${off.length})`, off, 'var(--text-muted)');
-	        } else {
-	            // Buttons etc. normal sortieren
-	            filtered.sort((a,b)=>a.loxone_name.localeCompare(b.loxone_name));
-	            filtered.forEach(m => list.appendChild(createMappingItem(m)));
-	        }
-	        if(filtered.length === 0) list.innerHTML = '<div style="padding:10px; color:#999; text-align:center">Leer</div>';
-	    }
+        if(currentTab === 'sensor') {
+            const motion = [], contact = [], other = [];
+            filtered.forEach(m => {
+                const st = status[m.loxone_name] || {};
+                if(st.contact !== undefined) contact.push(m);
+                else if(st.motion !== undefined) motion.push(m);
+                else other.push(m);
+            });
+            appendGroup(`🚪 Kontakte (${contact.length})`, contact, 'var(--danger)');
+            appendGroup(`🏃 Bewegung (${motion.length})`, motion, 'var(--sensor)');
+            appendGroup(`📡 Sonstige (${other.length})`, other, 'var(--text-muted)');
+        } else if(currentTab === 'light') {
+            const on = [], off = [];
+            filtered.forEach(m => {
+                const st = status[m.loxone_name] || {};
+                (st.on === 1 || st.on === true ? on : off).push(m);
+            });
+            on.sort((a,b)=>a.loxone_name.localeCompare(b.loxone_name));
+            off.sort((a,b)=>a.loxone_name.localeCompare(b.loxone_name));
+            appendGroup(`💡 Ein (${on.length})`, on, 'var(--accent)');
+            appendGroup(`🌑 Aus (${off.length})`, off, 'var(--text-muted)');
+        } else {
+            filtered.sort((a,b)=>a.loxone_name.localeCompare(b.loxone_name));
+            filtered.forEach(m => list.appendChild(createMappingItem(m)));
+        }
+        if(filtered.length === 0) list.innerHTML = '<div style="padding:10px; color:#999; text-align:center">Leer</div>';
+    }
 
     function createMappingItem(m) {
         const st = status[m.loxone_name] || {};
@@ -384,7 +409,6 @@
         return div;
     }
 
-    // --- DATA LOADING & ACTIONS ---
     async function loadTargets() { try { targets = await (await fetch('/api/targets')).json(); if(currentTab!=='system') renderDropdown(); } catch(e){} }
     async function loadMappings() { try { mappings = await (await fetch('/api/mapping')).json(); if(currentTab!=='system') renderMappings(); } catch(e){} }
     async function loadStatus() { try { status = await (await fetch('/api/status')).json(); if(currentTab!=='system') renderMappings(); } catch(e){} }
@@ -419,41 +443,61 @@
         loadMappings(); loadTargets();
     }
 
+    // --- FIX: CONFIG SAVE ---
     async function saveSettings() {
         const d = {};
         ['sys_loxIp', 'sys_loxPort', 'sys_mqttBroker', 'sys_mqttPort', 'sys_mqttUser', 'sys_mqttPass', 'sys_mqttPrefix'].forEach(id => d[id.replace('sys_','')] = document.getElementById(id).value);
+        
+        // Timing
+        d.transitionTime = document.getElementById('sys_transition').value;
+        d.throttleTime = document.getElementById('sys_throttle').value;
+
         d.debug = document.getElementById('sys_debug').checked;
         d.mqttEnabled = document.getElementById('sys_mqttEnabled').checked;
-        // NEU: Disable Log Disk
         d.disableLogDisk = document.getElementById('sys_disableLogDisk').checked;
 
         try {
             await fetch('/api/setup/loxone', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
-                loxoneIp: d.loxIp, loxonePort: d.loxPort, debug: d.debug,
-                mqttEnabled: d.mqttEnabled, mqttBroker: d.mqttBroker, mqttPort: d.mqttPort, mqttUser: d.mqttUser, mqttPass: d.mqttPass, mqttPrefix: d.mqttPrefix,
+                loxoneIp: d.loxIp, 
+                loxonePort: d.loxPort, 
+                debug: d.debug,
+                transitionTime: d.transitionTime,
+                throttleTime: d.throttleTime,
+                mqttEnabled: d.mqttEnabled, 
+                mqttBroker: d.mqttBroker, 
+                mqttPort: d.mqttPort, 
+                mqttUser: d.mqttUser, 
+                mqttPass: d.mqttPass, 
+                mqttPrefix: d.mqttPrefix,
                 disableLogDisk: d.disableLogDisk
             })});
             alert("Gespeichert!");
+            loadSettings();
         } catch(e) { alert("Fehler!"); }
     }
 
+    // --- FIX: CONFIG LOAD (Inputs) ---
     async function loadSettings() {
         try {
             const s = await (await fetch('/api/settings')).json();
             const table = document.getElementById('settingsTable');
-            const v = (val) => val || '';
-            // NEU: SD Card Mode Checkbox
+            const v = (val) => val !== undefined ? val : '';
+            
             table.innerHTML = `
                 <tr><td colspan="2" style="background:#eee;font-weight:bold">Allgemein</td></tr>
                 <tr><td>Version</td><td><span class="badge" style="background:#333;color:#fff">${s.version}</span></td></tr>
                 <tr><td>Loxone IP</td><td><input id="sys_loxIp" value="${v(s.loxone_ip)}"></td></tr>
                 <tr><td>UDP Port</td><td><input type="number" id="sys_loxPort" value="${v(s.loxone_port)}"></td></tr>
+                
+                <tr><td>Übergangszeit (ms)</td><td><input type="number" id="sys_transition" value="${v(s.transitionTime)}" placeholder="400"></td></tr>
+                <tr><td>Drosselung (ms)</td><td><input type="number" id="sys_throttle" value="${v(s.throttleTime)}" placeholder="100"></td></tr>
+                
                 <tr><td>Debug Modus</td><td><input type="checkbox" id="sys_debug" ${s.debug?'checked':''}></td></tr>
                 <tr>
                     <td>SD-Card Mode</td>
                     <td>
                         <input type="checkbox" id="sys_disableLogDisk" ${s.disableLogDisk?'checked':''}>
-                        <div style="font-size:0.7em; color:var(--text-muted); margin-top:2px">Deaktiviert Schreibzugriffe auf logs.db (schont SD-Karten). Logs gehen bei Neustart verloren.</div>
+                        <div style="font-size:0.7em; color:var(--text-muted); margin-top:2px">Deaktiviert Schreibzugriffe auf logs.db.</div>
                     </td>
                 </tr>
 
@@ -517,16 +561,14 @@
     async function restoreBackup(input) {
         if(!input.files.length) return;
         const file = input.files[0];
-        if(!confirm('Backup wiederherstellen?')) { input.value = ''; return; }
         const reader = new FileReader();
         reader.onload = async (e) => {
             try {
                 const json = JSON.parse(e.target.result);
                 await fetch('/api/system/restore', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(json)});
-                alert("Erfolg! Neustart...");
-                setTimeout(()=>location.reload(), 3000);
+                alert("Wiederhergestellt! Neustart...");
+                setTimeout(() => location.reload(), 3000);
             } catch(err) { alert("Fehler: " + err.message); }
-            input.value = '';
         };
         reader.readAsText(file);
     }

@@ -6,6 +6,15 @@ Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 und dieses Projekt hält sich an [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 [![Buy Me A Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://www.buymeacoffee.com/bausi2k)
 
+
+## [2.1.2] - 2026-02-17
+### 🐛 Bugfixes
+- **UI Settings:** Fehlende Eingabefelder für "Übergangszeit" und "Drosselung" im System-Tab hinzugefügt.
+- **Diagnose Tab:** Fehler behoben, der das Laden der Diagnose-Tabelle verhinderte (`loadDiagnostics is not defined`).
+- **Server Stabilität:** Kritischen Fehler beim Start behoben (Hoisting Problem bei `REQUEST_QUEUES`).
+- **Sonoff / On-Off Fix:** Reine Schaltaktoren erhalten keine `dynamics` Parameter mehr (behebt Probleme mit Sonoff ZBMINIR2).
+- **Sensor Sortierung:** Sensoren werden nun nach Batterie-Status (leer zuerst) und Aktivität sortiert.
+
 ## [2.1.1] - 2026-02-16
 ### 🐛 Bugfixes
 - **Sonoff / On-Off Fix:** Reine Schaltaktoren (ohne Dimm-Funktion) erhalten nun keine `dynamics` Parameter mehr. Das behebt Probleme mit Geräten wie dem Sonoff ZBMINIR2, die sich sonst nicht ausschalten ließen.

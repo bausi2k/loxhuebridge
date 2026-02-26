@@ -1,6 +1,6 @@
 {
   "name": "loxhuebridge",
-  "version": "2.1.2",
+  "version": "2.2.0",
   "description": "Philips Hue V2 to Loxone Bridge",
   "main": "server.js",
   "scripts": {

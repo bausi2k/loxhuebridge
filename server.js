@@ -52,6 +52,27 @@ let config = {
     disableLogDisk: false
 };
 
+const REQUEST_QUEUES = { 
+    light: { items: [], isProcessing: false, delayMs: 100 }, 
+    grouped_light: { items: [], isProcessing: false, delayMs: 1100 } 
+};
+
+function logQueueError(type, msg) { console.error(`[QUEUE ERROR] ${type}: ${msg}`); }
+
+async function processQueue(type) {
+    const q = REQUEST_QUEUES[type];
+    if (q.isProcessing || q.items.length === 0) return;
+    q.isProcessing = true;
+    const task = q.items.shift();
+    try { await task(); } catch (e) { logQueueError(type, e.message); }
+    setTimeout(() => { q.isProcessing = false; if (q.items.length > 0) processQueue(type); }, q.delayMs);
+}
+function enqueueRequest(type, taskFn) {
+    const queueType = REQUEST_QUEUES[type] ? type : 'light';
+    REQUEST_QUEUES[queueType].items.push(taskFn);
+    processQueue(queueType);
+}
+
 let db = null;
 let insertLogStmt = null;
 let dbError = null;
@@ -74,15 +95,11 @@ let ramLogs = [];
 
 function connectToMqtt() {
     if (mqttClient) { try { mqttClient.end(); } catch(e){} mqttClient = null; }
-    
     if (!config.mqttEnabled || !config.mqttBroker) return;
-
     const brokerUrl = `mqtt://${config.mqttBroker}:${config.mqttPort || 1883}`;
     log.info(`Verbinde zu MQTT Broker: ${brokerUrl} ...`, 'SYSTEM');
-
     const safeStr = (s) => (s && typeof s === 'string') ? s.trim() : "";
     const options = { clientId: 'loxhue_' + Math.random().toString(16).substr(2, 8), reconnectPeriod: 5000 };
-    
     const user = safeStr(config.mqttUser);
     const pass = safeStr(config.mqttPass);
     if (user.length > 0) options.username = user;
@@ -110,10 +127,8 @@ const getTime = () => {
 function addToLogBuffer(level, msg, category = 'SYSTEM') {
     const timeStr = getTime();
     const timestamp = Date.now();
-    
     if (level === 'ERROR') console.error(`[${timeStr}] [${category}] ${msg}`);
     else console.log(`[${timeStr}] [${category}] ${msg}`);
-
     if (config.disableLogDisk || !insertLogStmt) {
         ramLogs.push({ id: timestamp, timestamp, level, category, msg });
         if (ramLogs.length > MAX_RAM_LOGS) ramLogs.shift();
@@ -136,6 +151,8 @@ const log = {
     }
 };
 
+logQueueError = (type, msg) => log.error(`Queue Error (${type}): ${msg}`, 'SYSTEM');
+
 function getServerIp() {
     const interfaces = os.networkInterfaces();
     for (const devName in interfaces) {
@@ -154,7 +171,6 @@ function loadConfig() {
             if(content) {
                 const d = JSON.parse(content);
                 config = { ...config, ...d };
-                
                 if (config.transitionTime === undefined) config.transitionTime = 400;
                 if (config.throttleTime === undefined) config.throttleTime = 100;
                 if (config.mqttPort === undefined) config.mqttPort = 1883;
@@ -170,12 +186,8 @@ function loadConfig() {
                     return; 
                 }
             }
-        } else {
-            console.log("[INIT] Keine Config-Datei gefunden. Starte mit Defaults.");
-        }
-    } catch (e) {
-        log.error("Config Load Error: " + e.message, 'SYSTEM');
-    }
+        } else { console.log("[INIT] Keine Config-Datei gefunden. Starte mit Defaults."); }
+    } catch (e) { log.error("Config Load Error: " + e.message, 'SYSTEM'); }
     if (config.bridgeIp && config.appKey) isConfigured=true;
     else log.warn("Setup erforderlich. Bitte Dashboard öffnen.", 'SYSTEM');
 }
@@ -184,11 +196,7 @@ loadConfig();
 if (dbError) log.error(`DB Init fehlgeschlagen: ${dbError}. RAM-Modus aktiv.`, 'SYSTEM');
 
 function saveConfigToFile() { 
-    try { 
-        fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 4)); 
-    } catch(e) {
-        log.error(`Fehler beim Speichern der Config: ${e.message}`, 'SYSTEM');
-    } 
+    try { fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 4)); } catch(e) { log.error(`Fehler beim Speichern: ${e.message}`, 'SYSTEM'); } 
 }
 
 let mapping = []; let detectedItems = []; let serviceToDeviceMap = {}; let statusCache = {};
@@ -237,29 +245,18 @@ function rgbToMirekFallback(r, g, b, minM, maxM) {
 }
 function hueLightToLux(v) { return Math.round(Math.pow(10, (v - 1) / 10000)); }
 
-const REQUEST_QUEUES = { light: { items: [], isProcessing: false, delayMs: 100 }, grouped_light: { items: [], isProcessing: false, delayMs: 1100 } };
-
-async function processQueue(type) {
-    const q = REQUEST_QUEUES[type];
-    if (q.isProcessing || q.items.length === 0) return;
-    q.isProcessing = true;
-    const task = q.items.shift();
-    try { await task(); } catch (e) { log.error(`Queue Error (${type}): ${e.message}`, 'SYSTEM'); }
-    setTimeout(() => { q.isProcessing = false; if (q.items.length > 0) processQueue(type); }, q.delayMs);
-}
-function enqueueRequest(type, taskFn) {
-    const queueType = REQUEST_QUEUES[type] ? type : 'light';
-    REQUEST_QUEUES[queueType].items.push(taskFn);
-    processQueue(queueType);
-}
-
 const commandState = {}; 
+
+// --- FEATURE: IGNORE DYNAMICS ---
 async function updateLightWithQueue(uuid, type, payload, loxName, forcedDuration = null) {
     if (!commandState[uuid]) commandState[uuid] = { busy: false, next: null };
     let duration = config.transitionTime !== undefined ? config.transitionTime : 400;
     
     const caps = lightCapabilities[uuid];
-    if (caps && !caps.supportsDimming) {
+    const entry = mapping.find(m => m.loxone_name === loxName);
+    
+    // Prüfen, ob wir die Dynamics abschalten müssen (Gerät kann es nicht, oder User hat es deaktiviert)
+    if ((caps && !caps.supportsDimming) || (entry && entry.ignore_dynamics === true)) {
         duration = 0;
     }
 
@@ -267,12 +264,17 @@ async function updateLightWithQueue(uuid, type, payload, loxName, forcedDuration
     if (isDigitalSwitch && payload.on.on === true) duration = 0; 
     
     if (forcedDuration !== null) duration = forcedDuration;
-    if (duration > 0) payload.dynamics = { duration: duration };
+    
+    // Nur anhängen, wenn duration > 0 ist. Sonst geht das Gerät hart auf den neuen Wert.
+    if (duration > 0) {
+        payload.dynamics = { duration: duration };
+    }
     
     if (commandState[uuid].busy) { commandState[uuid].next = payload; return; }
     commandState[uuid].busy = true;
     await sendToHueRecursive(uuid, type, payload, loxName);
 }
+
 async function sendToHueRecursive(uuid, type, payload, loxName) {
     enqueueRequest(type, async () => {
         try {
@@ -480,7 +482,7 @@ app.post('/api/setup/register', async (req, res) => { try { const r = await axio
 app.post('/api/setup/loxone', (req, res) => { 
     config.loxoneIp = req.body.loxoneIp; config.loxonePort = parseInt(req.body.loxonePort); config.debug = !!req.body.debug; 
     if(req.body.transitionTime!==undefined) config.transitionTime=parseInt(req.body.transitionTime); 
-    if(req.body.throttleTime!==undefined) { config.throttleTime=parseInt(req.body.throttleTime); REQUEST_QUEUES.light.delayMs = config.throttleTime; }
+    if(req.body.throttleTime!==undefined) { config.throttleTime=parseInt(req.body.throttleTime); REQUEST_QUEUES.light.delayMs = config.throttleTime; REQUEST_QUEUES.grouped_light.delayMs = Math.max(config.throttleTime, 100); }
     if(req.body.mqttEnabled !== undefined) config.mqttEnabled = !!req.body.mqttEnabled;
     if(req.body.mqttBroker !== undefined) config.mqttBroker = req.body.mqttBroker;
     if(req.body.mqttPort !== undefined) config.mqttPort = parseInt(req.body.mqttPort);

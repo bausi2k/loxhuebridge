@@ -6,6 +6,15 @@
     <title>loxHueBridge</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&family=Fira+Code:wght@400&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
+    <style>
+        /* Macht die Cards visuell als klickbar erkennbar */
+        .mapping-item { cursor: pointer; transition: background 0.2s, transform 0.1s; }
+        .mapping-item:hover { background: #f8f9fa; transform: translateY(-1px); }
+        .slider-container { display: flex; align-items: center; gap: 10px; width: 100%; }
+        .slider-container input[type="range"] { flex: 1; }
+        .slider-val { font-family: monospace; width: 60px; text-align: right; color: var(--accent); font-weight: bold; }
+        .settings-card { padding: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 10px; }
+    </style>
 </head>
 <body>
 
@@ -47,6 +56,7 @@
                     <h2 style="margin:0">Aktiv</h2>
                     <button class="action-btn" onclick="openExportModal()">📥 XML Exportieren</button>
                 </div>
+                <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 10px;">💡 Klicke auf einen Eintrag, um Einstellungen & Status zu öffnen.</p>
                 <div id="mappingList" class="mapping-list"></div>
             </div>
         </div>
@@ -148,7 +158,6 @@
         await loadMappings();
         loadDetected(); 
         loadStatus();
-        
         setInterval(loadDetected, 3000);
         setInterval(loadStatus, 2000);
         loadLogs();
@@ -183,7 +192,6 @@
         }
     }
 
-    // --- FIX: DIAGNOSE FUNKTION ---
     async function loadDiagnostics() {
         const div = document.getElementById('diagContent');
         if(!div) return;
@@ -192,13 +200,26 @@
         await loadMappings();
         await loadStatus();
 
-        // Sortierung: Kritische zuerst (Leere Batterie)
+        const typeConfig = {
+            'light':  { icon: '💡', label: 'Licht', order: 1 },
+            'group':  { icon: '📦', label: 'Gruppe', order: 2 },
+            'sensor': { icon: '📡', label: 'Sensor', order: 3 },
+            'button': { icon: '🔘', label: 'Schalter', order: 4 }
+        };
+
+        // Sortierung: Typ -> Batterie (leer zuerst) -> Name
         const sorted = [...mappings].sort((a,b) => {
+            const tA = typeConfig[a.hue_type] ? typeConfig[a.hue_type].order : 99;
+            const tB = typeConfig[b.hue_type] ? typeConfig[b.hue_type].order : 99;
+            if (tA !== tB) return tA - tB; 
+
             const sA = status[a.loxone_name] || {};
             const sB = status[b.loxone_name] || {};
             const batA = sA.bat !== undefined ? sA.bat : 100;
             const batB = sB.bat !== undefined ? sB.bat : 100;
-            return batA - batB;
+            if (batA !== batB) return batA - batB; 
+
+            return a.loxone_name.localeCompare(b.loxone_name);
         });
 
         let html = '<table class="settings-table"><thead><tr><th>Name</th><th>Typ</th><th>Batterie</th><th>Letzter Wert</th></tr></thead><tbody>';
@@ -220,9 +241,11 @@
             if (st.contact !== undefined) lastVal += `Con:${st.contact} `;
             if (st.temp !== undefined) lastVal += `${st.temp}°C `;
             
+            const tConf = typeConfig[m.hue_type] || {icon:'❓', label: m.hue_type};
+
             html += `<tr>
                 <td><div style="font-weight:bold">${m.loxone_name}</div><div style="font-size:0.8em;color:#666">${m.hue_name}</div></td>
-                <td><span class="badge" style="background:#eee;color:#333">${m.hue_type}</span></td>
+                <td><span class="badge" style="background:#f1f3f5;color:#333; border:1px solid #ddd">${tConf.icon} ${tConf.label}</span></td>
                 <td style="${batStyle}">${bat}</td>
                 <td style="font-size:0.8em; font-family:monospace; color:#555">${lastVal}</td>
             </tr>`;
@@ -312,7 +335,6 @@
         if(consoleDiv.innerHTML.length !== html.length) consoleDiv.innerHTML = html;
     }
 
-    // --- MAPPING RENDERER MIT SORTIERUNG ---
     function renderMappings() {
         const list = document.getElementById('mappingList');
         if(!list) return;
@@ -326,7 +348,6 @@
         
         const appendGroup = (title, items, color) => {
             if(items.length===0) return;
-            // Sort: Battery -> Status -> Name
             items.sort((a,b) => {
                 const sA = status[a.loxone_name] || {};
                 const sB = status[b.loxone_name] || {};
@@ -367,7 +388,16 @@
             appendGroup(`💡 Ein (${on.length})`, on, 'var(--accent)');
             appendGroup(`🌑 Aus (${off.length})`, off, 'var(--text-muted)');
         } else {
-            filtered.sort((a,b)=>a.loxone_name.localeCompare(b.loxone_name));
+            // FIX: Schalter nach Batterie sortieren (leer zuerst), danach alphabetisch
+            filtered.sort((a,b) => {
+                const sA = status[a.loxone_name] || {};
+                const sB = status[b.loxone_name] || {};
+                const batA = sA.bat !== undefined ? sA.bat : 100;
+                const batB = sB.bat !== undefined ? sB.bat : 100;
+                
+                if (batA !== batB) return batA - batB; // Batterie aufsteigend
+                return a.loxone_name.localeCompare(b.loxone_name); // Name alphabetisch
+            });
             filtered.forEach(m => list.appendChild(createMappingItem(m)));
         }
         if(filtered.length === 0) list.innerHTML = '<div style="padding:10px; color:#999; text-align:center">Leer</div>';
@@ -399,13 +429,22 @@
             badges += `<span class="badge" style="background:#e1f5fe">🔄 ${val}</span>`; 
         }
 
-        let infoBtn = m.hue_type === 'light' ? `<button class="info-btn" onclick="showDetails('${m.hue_uuid}','${m.loxone_name}')">ℹ️</button>` : '';
-        let syncBox = currentTab === 'light' ? `<label class="sync-check ${m.sync_lox?'sync-active':''}"><input type="checkbox" ${m.sync_lox?'checked':''} onchange="toggleSync('${m.loxone_name}',this.checked)">Sync</label>` : '';
-
         const div = document.createElement('div');
         div.className = `mapping-item type-${m.hue_type}`;
-        div.innerHTML = `<div><div class="mapping-lox">${m.loxone_name}</div><div class="mapping-hue">${m.hue_name} ${infoBtn}</div></div>
-        <div style="display:flex; align-items:center">${syncBox}<div class="status-badges">${badges}</div><button class="del-btn" onclick="deleteMapping('${m.loxone_name}')">✖</button></div>`;
+        
+        // Modal Trigger
+        div.onclick = () => showDetails(m.hue_uuid, m.loxone_name);
+
+        div.innerHTML = `
+            <div>
+                <div class="mapping-lox">${m.loxone_name}</div>
+                <div class="mapping-hue">${m.hue_name}</div>
+            </div>
+            <div style="display:flex; align-items:center">
+                <div class="status-badges">${badges}</div>
+                <button class="del-btn" onclick="event.stopPropagation(); deleteMapping('${m.loxone_name}')">✖</button>
+            </div>
+        `;
         return div;
     }
 
@@ -443,12 +482,20 @@
         loadMappings(); loadTargets();
     }
 
-    // --- FIX: CONFIG SAVE ---
+    // --- NEU: DYNAMISCHES SPEICHERN FÜR CHECKBOXEN IM MODAL ---
+    async function updateMappingSetting(loxName, key, val) {
+        const entry = mappings.find(m => m.loxone_name === loxName);
+        if (entry) {
+            entry[key] = val;
+            await fetch('/api/mapping', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(mappings) });
+            renderMappings();
+        }
+    }
+
     async function saveSettings() {
         const d = {};
         ['sys_loxIp', 'sys_loxPort', 'sys_mqttBroker', 'sys_mqttPort', 'sys_mqttUser', 'sys_mqttPass', 'sys_mqttPrefix'].forEach(id => d[id.replace('sys_','')] = document.getElementById(id).value);
         
-        // Timing
         d.transitionTime = document.getElementById('sys_transition').value;
         d.throttleTime = document.getElementById('sys_throttle').value;
 
@@ -458,17 +505,9 @@
 
         try {
             await fetch('/api/setup/loxone', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
-                loxoneIp: d.loxIp, 
-                loxonePort: d.loxPort, 
-                debug: d.debug,
-                transitionTime: d.transitionTime,
-                throttleTime: d.throttleTime,
-                mqttEnabled: d.mqttEnabled, 
-                mqttBroker: d.mqttBroker, 
-                mqttPort: d.mqttPort, 
-                mqttUser: d.mqttUser, 
-                mqttPass: d.mqttPass, 
-                mqttPrefix: d.mqttPrefix,
+                loxoneIp: d.loxIp, loxonePort: d.loxPort, debug: d.debug,
+                transitionTime: d.transitionTime, throttleTime: d.throttleTime,
+                mqttEnabled: d.mqttEnabled, mqttBroker: d.mqttBroker, mqttPort: d.mqttPort, mqttUser: d.mqttUser, mqttPass: d.mqttPass, mqttPrefix: d.mqttPrefix,
                 disableLogDisk: d.disableLogDisk
             })});
             alert("Gespeichert!");
@@ -476,7 +515,6 @@
         } catch(e) { alert("Fehler!"); }
     }
 
-    // --- FIX: CONFIG LOAD (Inputs) ---
     async function loadSettings() {
         try {
             const s = await (await fetch('/api/settings')).json();
@@ -489,8 +527,24 @@
                 <tr><td>Loxone IP</td><td><input id="sys_loxIp" value="${v(s.loxone_ip)}"></td></tr>
                 <tr><td>UDP Port</td><td><input type="number" id="sys_loxPort" value="${v(s.loxone_port)}"></td></tr>
                 
-                <tr><td>Übergangszeit (ms)</td><td><input type="number" id="sys_transition" value="${v(s.transitionTime)}" placeholder="400"></td></tr>
-                <tr><td>Drosselung (ms)</td><td><input type="number" id="sys_throttle" value="${v(s.throttleTime)}" placeholder="100"></td></tr>
+                <tr>
+                    <td>Übergangszeit</td>
+                    <td>
+                        <div class="slider-container">
+                            <input type="range" id="sys_transition" min="0" max="1000" step="50" value="${v(s.transitionTime)}" oninput="document.getElementById('val_trans').innerText = this.value + ' ms'">
+                            <span id="val_trans" class="slider-val">${v(s.transitionTime)} ms</span>
+                        </div>
+                    </td>
+                </tr>
+                <tr>
+                    <td>Drosselung</td>
+                    <td>
+                        <div class="slider-container">
+                            <input type="range" id="sys_throttle" min="0" max="1000" step="50" value="${v(s.throttleTime)}" oninput="document.getElementById('val_thro').innerText = this.value + ' ms'">
+                            <span id="val_thro" class="slider-val">${v(s.throttleTime)} ms</span>
+                        </div>
+                    </td>
+                </tr>
                 
                 <tr><td>Debug Modus</td><td><input type="checkbox" id="sys_debug" ${s.debug?'checked':''}></td></tr>
                 <tr>
@@ -514,25 +568,74 @@
 
     function showDetails(uuid, loxoneName) {
         const target = targets.find(t => t.uuid === uuid);
+        const entry = mappings.find(m => m.loxone_name === loxoneName);
         const currentStatus = status[loxoneName] || {};
-        if(!target) return;
-        let content = `<table class="details-table">`;
-        content += `<tr><td colspan="2" style="border-bottom:none; padding-top:10px; color:var(--accent); font-weight:bold;">⚡ Aktueller Status</td></tr>`;
+        if(!target || !entry) return;
+
+        let content = `<div style="margin-bottom:20px;">`;
+
+        // 1. SETTINGS (nur für Lichter/Gruppen)
+        if (entry.hue_type === 'light' || entry.hue_type === 'group') {
+            const caps = target.capabilities || {};
+            const supportsDimming = entry.hue_type === 'group' ? true : !!caps.supportsDimming; 
+            
+            const isStrictOnOff = entry.hue_type === 'light' && !supportsDimming;
+            const ignoreDyn = isStrictOnOff ? true : !!entry.ignore_dynamics;
+            const disableIgnoreDyn = isStrictOnOff ? 'disabled' : '';
+
+            content += `
+                <h3 style="margin-top:0; font-size:1rem; color:var(--text-main);">⚙️ Einstellungen</h3>
+                
+                <div class="settings-card">
+                    <label style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+                        <input type="checkbox" ${entry.sync_lox ? 'checked' : ''} onchange="updateMappingSetting('${loxoneName}', 'sync_lox', this.checked)"> 
+                        <span style="font-weight:500;">Loxone Sync</span>
+                    </label>
+                    <div style="font-size:0.8rem; color:var(--text-muted); margin-left:24px; margin-top:2px;">Sendet Statusänderungen per UDP an Loxone zurück.</div>
+                </div>
+
+                <div class="settings-card" style="opacity: ${isStrictOnOff ? '0.6' : '1'};">
+                    <label style="display:flex; align-items:center; gap:10px; cursor:${isStrictOnOff ? 'not-allowed' : 'pointer'};">
+                        <input type="checkbox" ${ignoreDyn ? 'checked' : ''} ${disableIgnoreDyn} onchange="updateMappingSetting('${loxoneName}', 'ignore_dynamics', this.checked)"> 
+                        <span style="font-weight:500;">Dynamics ignorieren</span>
+                    </label>
+                    <div style="font-size:0.8rem; color:var(--text-muted); margin-left:24px; margin-top:2px;">
+                        ${isStrictOnOff ? 'Dieses Gerät ist ein reiner On/Off Schalter und unterstützt kein Dimmen. Parameter ist erzwungen aktiv.' : 'Deaktiviert weiche Übergangszeiten (Transition) beim Schalten für dieses Gerät.'}
+                    </div>
+                </div>
+                
+                <hr style="border:0; border-top:1px solid var(--border); margin: 20px 0;">
+            `;
+        }
+
+        // 2. STATUS & SPECS (für alle Geräte)
+        content += `<h3 style="margin-top:0; font-size:1rem; color:var(--text-main);">⚡ Aktueller Status</h3><table class="details-table">`;
         const isOn = currentStatus.on === 1 || currentStatus.on === true;
-        content += `<tr><td>Zustand</td><td>${isOn ? '<span class="status-ok">AN</span>' : '<span style="color:#888">AUS</span>'}</td></tr>`;
+        
+        if (currentStatus.on !== undefined) {
+            content += `<tr><td>Zustand</td><td>${isOn ? '<span class="status-ok">AN</span>' : '<span style="color:#888">AUS</span>'}</td></tr>`;
+        }
+        
         if (isOn) {
             if (currentStatus.bri !== undefined) content += `<tr><td>Helligkeit</td><td>${Math.round(currentStatus.bri)} %</td></tr>`;
-            if (currentStatus.mirek) {
-                const kelvin = Math.round(1000000 / currentStatus.mirek);
-                content += `<tr><td>Temperatur</td><td>${kelvin} K</td></tr>`;
-            }
+            if (currentStatus.mirek) content += `<tr><td>Temperatur</td><td>${Math.round(1000000 / currentStatus.mirek)} K</td></tr>`;
             if (currentStatus.hex) content += `<tr><td>Farbe</td><td><span class="color-dot" style="background-color:${currentStatus.hex}"></span> <span style="font-family:monospace">${currentStatus.hex}</span></td></tr>`;
         }
+
+        // Sensor Stats
+        if (currentStatus.bat !== undefined) content += `<tr><td>Batterie</td><td>${currentStatus.bat} %</td></tr>`;
+        if (currentStatus.temp !== undefined) content += `<tr><td>Temperatur</td><td>${currentStatus.temp} °C</td></tr>`;
+        if (currentStatus.lux !== undefined) content += `<tr><td>Helligkeit</td><td>${currentStatus.lux} lx</td></tr>`;
+        if (currentStatus.contact !== undefined) content += `<tr><td>Kontakt</td><td>${currentStatus.contact === 1 ? '🔓 Offen' : '🔒 Geschlossen'}</td></tr>`;
+        if (currentStatus.motion !== undefined) content += `<tr><td>Bewegung</td><td>${currentStatus.motion === 1 ? '🏃 Ja' : '🧘 Nein'}</td></tr>`;
+
         content += `<tr><td colspan="2" style="border-bottom:none; padding-top:20px; color:var(--text-muted); font-weight:bold;">📋 Technische Daten</td></tr>`;
         content += `<tr><td>Name</td><td>${target.name}</td></tr>`;
         content += `<tr><td>Loxone ID</td><td>${loxoneName}</td></tr>`;
+        content += `<tr><td>Typ</td><td><span class="badge" style="background:#eee;color:#333">${entry.hue_type}</span></td></tr>`;
         content += `<tr><td>UUID</td><td style="font-size:0.8em; font-family:monospace">${target.uuid}</td></tr>`;
-        content += `</table>`;
+        content += `</table></div>`;
+
         document.getElementById('detailsContent').innerHTML = content;
         document.getElementById('detailsModal').style.display = 'flex';
     }
@@ -546,14 +649,7 @@
         window.location.href = `/api/download/${type}?names=${names}`;
         closeModal('exportModal');
     }
-    async function toggleSync(loxName, isActive) {
-        const entry = mappings.find(m => m.loxone_name === loxName);
-        if (entry) {
-            entry.sync_lox = isActive;
-            await fetch('/api/mapping', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(mappings) });
-            renderMappings();
-        }
-    }
+    
     async function restartServer() { if(confirm("Neustart?")) await fetch('/api/system/restart', {method:'POST'}); }
     function downloadLog() { window.location.href = '/api/system/logdownload'; }
     function downloadBackup() { window.location.href = '/api/system/backup'; }

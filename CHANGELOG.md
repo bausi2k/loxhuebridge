@@ -6,6 +6,15 @@ Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 und dieses Projekt hält sich an [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 [![Buy Me A Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://www.buymeacoffee.com/bausi2k)
 
+## [2.2.0] - 2026-02-26
+### 🌟 New Features
+- **Dynamics ignorieren:** Es kann nun pro Lampe/Gruppe individuell eingestellt werden, ob weiche Übergänge (Transition/Dynamics) gesendet werden sollen. Für reine An/Aus-Schalter (ohne Dimmfunktion) wird dies automatisch erzwungen.
+- **Interaktive UI & Detail-Ansicht:** Die Gerätekarten im Dashboard sind nun klickbar. Ein Modal zeigt Live-Status, technische Details und erlaubt individuelle Geräte-Einstellungen (Loxone Sync & Dynamics ignorieren).
+- **Slider für Timings:** Übergangszeit und Drosselung lassen sich im System-Tab nun intuitiv per Schieberegler (0-1000ms) einstellen.
+
+### 🔄 Verbesserungen
+- **Smarte Sortierung:** Schalter und Diagnose-Einträge werden nun ebenfalls priorisiert nach niedrigstem Batteriestand sortiert.
+- **Diagnose-Icons:** Optische Aufwertung und bessere Übersichtlichkeit des Diagnose-Tabs durch Geräte-Typ-Icons.
 
 ## [2.1.2] - 2026-02-17
 ### 🐛 Bugfixes

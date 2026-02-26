@@ -6,7 +6,7 @@
 
 Sie ermöglicht eine extrem schnelle, lokale Steuerung ohne Cloud-Verzögerung und nutzt die moderne Hue Event-Schnittstelle (SSE), um Statusänderungen in Echtzeit an Loxone (UDP) und MQTT Broker zurückzumelden.
 
-## 🚀 Features V2.1.1
+## 🚀 Features V2.2.0
 
 * **Smart Setup:** Automatische Suche der Hue Bridge und Pairing per Web-Interface.
 * **Live Dashboard:** Echtzeit-Anzeige aller Lichter (mit Live-Werten für Kelvin/Hex/Dim), Sensoren und Batterieständen.
@@ -18,6 +18,8 @@ Sie ermöglicht eine extrem schnelle, lokale Steuerung ohne Cloud-Verzögerung u
     * **Empfangen:** Bewegung, Taster, Helligkeit, Temperatur, Batterie (via UDP Eingang).
 * **MQTT Support:** Sendet alle Statusänderungen parallel an einen MQTT Broker (z.B. für Home Assistant, ioBroker).
 * **Stabilität:** Integrierter Watchdog überwacht die Verbindung und eine intelligente Queue verhindert Überlastung der Bridge (Error 429).
+* 🎛️ **Individuelle Geräte-Steuerung:** Detaillierte Einstellungen pro Gerät direkt im UI (z. B. Deaktivieren von Überblendzeiten/Dynamics für Drittanbieter-Relais).
+* 📊 **Smartes Dashboard:** Live-Status aller Geräte, Batteriewarnungen und komfortable System-Konfiguration per Web-Interface.
 
 ---
 

@@ -71,7 +71,7 @@ Du musst keinen Code mehr bauen. Du brauchst nur Docker und eine `docker-compose
 Falls du kein Docker nutzen möchtest, benötigst du **Node.js 24** (oder neuer), da wir das native SQLite-Modul nutzen.
 
 ```bash
-git clone [https://github.com/bausi2k/loxhuebridge.git](https://github.com/bausi2k/loxhuebridge.git)
+git clone https://github.com/bausi2k/loxhuebridge.git
 cd loxhuebridge
 npm install
 node server.js
